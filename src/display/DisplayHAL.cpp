@@ -181,7 +181,7 @@ constexpr uint32_t T_BG     = 0x0D0D12;  // near-black
 constexpr uint32_t T_CARD   = 0x1B1B24;  // card background
 constexpr uint32_t T_TITLE  = 0xF2F2F5;  // bright text
 constexpr uint32_t T_MUTED  = 0x9B90B0;  // muted lavender ("resets in")
-constexpr uint32_t T_TRACK  = 0x332E44;  // bar track (purple)
+constexpr uint32_t T_TRACK  = 0x423C58;  // bar track (purple) - visible vs card
 constexpr uint32_t T_CORAL  = 0xE8654F;  // mascot + status
 constexpr uint32_t T_CUR    = 0xED7B3A;  // current bar (orange)
 constexpr uint32_t T_WK     = 0xC2D74A;  // weekly bar (lime)
@@ -246,7 +246,7 @@ int drawPill(const char* text, int rightX, int y) {
 void drawMetricCard(int yc, const char* label, float pct, const String& reset,
                     uint32_t barColor) {
     if (pct < 0) pct = 0; if (pct > 100) pct = 100;
-    const int cx = 12, cw = canvas.width() - 24, ch = 80;
+    const int cx = 12, cw = canvas.width() - 24, ch = 82;
     canvas.fillRoundRect(cx, yc, cw, ch, 10, rgb(T_CARD));
 
     // Big percentage.
@@ -255,12 +255,12 @@ void drawMetricCard(int yc, const char* label, float pct, const String& reset,
     canvas.setFont(&fonts::FreeSansBold18pt7b);
     canvas.setTextDatum(textdatum_t::top_left);
     canvas.setTextColor(rgb(T_TITLE));
-    canvas.drawString(buf, cx + 18, yc + 8);
+    canvas.drawString(buf, cx + 18, yc + 6);
 
-    drawPill(label, cx + cw - 16, yc + 10);
+    drawPill(label, cx + cw - 16, yc + 8);
 
     // Bar.
-    const int bx = cx + 18, bw = cw - 36, by = yc + 39, bh = 14, r = 7;
+    const int bx = cx + 18, bw = cw - 36, by = yc + 36, bh = 17, r = 8;
     canvas.fillRoundRect(bx, by, bw, bh, r, rgb(T_TRACK));
     int fw = (int)(bw * pct / 100.0f);
     if (fw > 0) canvas.fillRoundRect(bx, by, fw < bh ? bh : fw, bh, r, rgb(barColor));
@@ -269,7 +269,7 @@ void drawMetricCard(int yc, const char* label, float pct, const String& reset,
     canvas.setFont(&fonts::FreeSans12pt7b);
     canvas.setTextDatum(textdatum_t::top_left);
     canvas.setTextColor(rgb(0xC8BEDC));
-    canvas.drawString("Resets in " + reset, bx, yc + 60);
+    canvas.drawString("Resets in " + reset, bx, yc + 58);
 }
 }  // namespace
 
@@ -287,14 +287,14 @@ void drawDashboard(const Dashboard& d) {
     drawWifiBars(canvas.width() - 74, 9, d.rssi);
 
     // ---- Cards ------------------------------------------------------------
-    drawMetricCard(36,  "Current", d.current, d.currentReset, T_CUR);
-    drawMetricCard(120, "Weekly",  d.weekly,  d.weeklyReset,  T_WK);
+    drawMetricCard(34,  "Current", d.current, d.currentReset, T_CUR);
+    drawMetricCard(118, "Weekly",  d.weekly,  d.weeklyReset,  T_WK);
 
     // ---- Status line ------------------------------------------------------
     canvas.setFont(&fonts::FreeSansBold9pt7b);
     canvas.setTextDatum(textdatum_t::top_center);
     canvas.setTextColor(rgb(T_CORAL));
-    canvas.drawString("* " + d.status, canvas.width() / 2, 202);
+    canvas.drawString("* " + d.status, canvas.width() / 2, 204);
     present();
 }
 
