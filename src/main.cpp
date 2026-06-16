@@ -342,10 +342,14 @@ void loop() {
                 armed = true;
             }
 
-            // IO16 -> backlight on/off (also wakes from off).
+            // IO16 -> backlight on/off. Polling is paused while off, so on wake
+            // fetch fresh data (animated) instead of showing the stale screen.
             if (io16Pressed()) {
                 toggleBacklight();
-                if (!gScreenOff) renderCurrentView();   // repaint on wake
+                if (!gScreenOff) {
+                    requestPoll(true);
+                    gLastPoll = millis();
+                }
             }
 
             // IO12 -> toggle detail page.

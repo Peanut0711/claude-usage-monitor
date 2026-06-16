@@ -318,10 +318,10 @@ void drawDetail(const Detail& d) {
 
 void drawSplash() {
     canvas.fillScreen(rgb(T_BG));
-    const int s = 2, lw = CC_LOGO_W * s;            // 60px logo
-    drawLogo(canvas.width() / 2 - lw / 2, 28, s);
+    const int s = 3, lw = CC_LOGO_W * s;            // 90px logo
+    drawLogo(canvas.width() / 2 - lw / 2, 8, s);
     drawBits(CC_TEXT, CC_TEXT_W, CC_TEXT_H,
-             canvas.width() / 2 - CC_TEXT_W / 2, 104, 1, T_TITLE);
+             canvas.width() / 2 - CC_TEXT_W / 2, 112, 1, T_TITLE);
     present();
 }
 
