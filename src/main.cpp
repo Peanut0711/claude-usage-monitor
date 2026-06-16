@@ -249,8 +249,11 @@ void setup() {
     }
     Serial.println("[display] init OK");
 
-    display::drawSplash();              // branded boot splash
-    delay(1300);
+    for (int f = 0; f <= 28; f += 2) {  // splash slides down into place
+        display::drawSplash(f);
+        delay(35);
+    }
+    delay(700);
 
 #if CUM_TOUCH_TEST
     gTouchOn = touch::begin();

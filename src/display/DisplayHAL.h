@@ -70,8 +70,9 @@ void drawDashboard(const Dashboard& d);
 // an incrementing frame counter while a poll is in flight.
 void drawRefreshAnim(int frame);
 
-// Boot splash: Claude Code logo + wordmark.
-void drawSplash();
+// Boot splash: Claude Code logo + wordmark, shifted down by `yoff` (for the
+// slide-in animation).
+void drawSplash(int yoff = 0);
 
 // Shown when a poll fails so a photo of the screen reveals the HTTP code.
 void drawApiError(int httpCode, const String& note);

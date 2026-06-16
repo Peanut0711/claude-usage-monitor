@@ -223,11 +223,10 @@ void drawBattery(int x, int y, int pct, bool charging) {
     uint32_t fill = (pct <= 15 && !charging) ? T_CORAL : T_GREEN;
     int fw = (w - 4) * pct / 100;
     if (fw > 0) canvas.fillRect(x + 2, y + 2, fw, h - 4, rgb(fill));
-    if (charging) {                                          // little bolt
-        canvas.setFont(&fonts::Font0);
-        canvas.setTextDatum(textdatum_t::middle_center);
-        canvas.setTextColor(rgb(T_BG));
-        canvas.drawString("+", x + w / 2, y + h / 2);
+    if (charging) {                                          // centered "+"
+        int cx = x + w / 2, cy = y + h / 2;
+        canvas.fillRect(cx - 2, cy, 5, 1, rgb(T_BG));        // horizontal
+        canvas.fillRect(cx, cy - 2, 1, 5, rgb(T_BG));        // vertical
     }
 }
 
@@ -316,12 +315,12 @@ void drawDetail(const Detail& d) {
     present();
 }
 
-void drawSplash() {
+void drawSplash(int yoff) {
     canvas.fillScreen(rgb(T_BG));
-    const int s = 3, lw = CC_LOGO_W * s;            // 90px logo
-    drawLogo(canvas.width() / 2 - lw / 2, 8, s);
+    drawBits(CC_LOGO_L, CC_LOGO_L_W, CC_LOGO_L_H,           // 90px native logo
+             canvas.width() / 2 - CC_LOGO_L_W / 2, 8 + yoff, 1, T_CORAL);
     drawBits(CC_TEXT, CC_TEXT_W, CC_TEXT_H,
-             canvas.width() / 2 - CC_TEXT_W / 2, 112, 1, T_TITLE);
+             canvas.width() / 2 - CC_TEXT_W / 2, 110 + yoff, 1, T_TITLE);
     present();
 }
 
@@ -331,9 +330,9 @@ void drawRefreshAnim(int frame) {
     // Logo bobs up and down on a short cycle.
     static const int kBob[] = {0, 4, 8, 10, 8, 4};
     int oy = kBob[frame % 6];
-    const int s = 2;                       // 60 x 60 logo
-    int mw = CC_LOGO_W * s;
-    drawLogo(canvas.width() / 2 - mw / 2, 28 + oy, s);
+    int mw = CC_LOGO_M_W;                  // 60px native logo
+    drawBits(CC_LOGO_M, CC_LOGO_M_W, CC_LOGO_M_H,
+             canvas.width() / 2 - mw / 2, 28 + oy, 1, T_CORAL);
 
     // Shadow that shrinks as it rises, for a little life.
     int sw = 48 - oy;
