@@ -27,15 +27,21 @@ PlatformIO 스캐폴드 + ST7796 디스플레이 최소 구동 코드 작성 완
 | `README.md` | 빌드/업로드/모니터 방법 |
 | `.gitignore` | `.pio/` 등 |
 
-## 🔜 Stage 1 마무리로 남은 것 (다음 세션 첫 작업)
+## ✅ Stage 1 완전 종료 (실기 검증 완료)
 
-1. ~~실기 빌드 검증~~ ✅ 완료 (위 참고).
-2. **업로드 후 화면 확인** (보드 USB-C 연결 필요):
-   `pio run -e tdisplay-s3-pro -t upload -t monitor`
-   - 480×222 가로 화면에 타이틀 + 코랄색 65% 바가 보이는지.
-   - 화면이 좌우로 밀리면 `LGFX_TDisplayS3Pro.hpp`의 `offset_x`(현재 49) 조정.
-   - 색이 반전돼 보이면 `invert` 토글.
-   - 가로/세로가 틀리면 `DisplayHAL::begin()`의 `setRotation(1)` 값 변경(1 또는 3).
+1. ~~실기 빌드 검증~~ ✅ 완료.
+2. ~~업로드 후 화면 확인~~ ✅ 완료 — COM6에 업로드, 부팅 로그 정상
+   (`PSRAM enabled` → `[display] init OK` → `test screen drawn`).
+   실제 화면 사진으로 확인: 480×222 가로 화면에 타이틀 + 코랄색 65% 바가
+   중앙 정렬로 정상 표시. **offset_x=49 / setRotation(1) / invert=true 전부 정확,
+   조정 불필요.**
+
+업로드/모니터 명령 (보드 COM6 연결 시):
+```
+~/.pio-venv/Scripts/pio.exe run -e tdisplay-s3-pro -t upload --upload-port COM6
+```
+> 주의: 이 펌웨어는 USB CDC(`ARDUINO_USB_CDC_ON_BOOT=1`)로 로그를 출력하므로,
+> 리셋 직후 포트가 재열거됨. 시리얼 모니터는 리셋 후 곧바로 열어야 앱 로그가 잡힘.
 
 ## ⏭️ 이후 단계 (Stage 2+, 아직 시작 안 함)
 
