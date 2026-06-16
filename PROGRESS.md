@@ -126,20 +126,23 @@ Anthropic API 폴링 + rate-limit 헤더 파싱 + 대시보드까지 구현·검
    전압→1S Li-ion 곡선으로 잔량 추정, `isCharging()||isVbusIn()`로 충전표시.
    배터리 없으면 USB 구동으로 보고 100%/충전. (`src/power/Power.*`)
    lib_deps에 `lewisxhe/XPowersLib@^0.2.6`(설치된 건 0.2.9).
-5. ✅ **자동 밝기** — LTR-553 조도센서(`src/input/Light.*`, I²C 0x23 폴링) →
-   `main.cpp autoBright()`에서 EMA 스무딩 후 백라이트 조절. 매핑상수 600/스무딩 튜닝 가능.
-6. ✅ **키패드 폭 축소** — 480폭 꽉 채우던 그리드 → 가운데 96×42 셀 클러스터.
-7. ✅ **두 번 탭 백라이트 on/off** — 절전 토글(`gScreenOff`). 검은 픽셀≠백라이트off라
-   실제 절전하려면 밝기 0 필요. 꺼지면 autoBright 일시정지, 깨우면 복귀.
+5. ✅ **드래그 밝기 조절** — 대시보드에서 좌/우 가장자리 스트립(x<48 또는 x>432)을
+   위아래 드래그 → 밝기(위=밝게). `main.cpp` Running 케이스. (조도 자동밝기는 선호에
+   따라 제거함 — Light 모듈 삭제.)
+6. ✅ **키패드 폭 축소 + PIN 점 중앙정렬** — 가운데 96×42 셀 클러스터.
+7. ✅ **백라이트 on/off 토글** — **전면 동그라미 = CST226SE Home 버튼**
+   (`setHomeButtonCallback`)으로 처리. 한 번 누름=한 번 토글(이벤트 끊김>300ms로
+   release 판정해 re-arm). 꺼지면 Running 루프 작업 skip, Home 재누름으로 깨움.
 
 ### 하드웨어 메모 (확정)
-- **터치는 I²C**(CST226SE, SDA5/SCL6, 0x5A, RST13)로 동작 — 일부 핀맵 이미지의
-  "TOUCH=SPI" 표기는 일반/오류 다이어그램(IRQ09가 LCD_DC09와 충돌). 무시.
-- **백라이트 LED는 픽셀 내용과 무관하게 켜져 있음** → 검은 화면도 전력 소비. 절전은 밝기 0.
+- **터치는 I²C**(CST226SE, SDA5/SCL6, 0x5A, RST13). 핀맵 이미지의 "TOUCH=SPI"는 오류.
+- **전면 동그라미는 Home 터치버튼** — 좌표 아님. SensorLib `setHomeButtonCallback`
+  이벤트(누르면 getPoint 중 콜백 발생). 백라이트 토글에 사용.
+- **백라이트 LED는 픽셀 내용과 무관** → 검은 화면도 전력 소비. 절전은 밝기 0.
+- 터치 좌표 진단: `CUM_TOUCH_TEST=1`로 부팅하면 raw/map 좌표 표시 화면.
 
 ### Stage 4 남은 선택지
-- 둥근 폰트(B 정통: Baloo TTF→폰트헤더 임베드), 화면 페이지 전환, 전면 동그라미
-  터치존을 액션버튼으로(좌표 실측 필요).
+- 둥근 폰트(B 정통: Baloo TTF→폰트헤더 임베드), 화면 페이지 전환(상세/네트워크/히스토리).
 
 ## ⏭️ 이후 단계
 
