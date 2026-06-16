@@ -41,8 +41,8 @@ int curvePercent(uint16_t mv) {
 // Slow, long-window voltage sampler. One sample every SAMPLE_MS; percent() then
 // uses the MEDIAN of the last SAMPLES, which rejects ADC spikes and averages
 // over ~SAMPLES*SAMPLE_MS. No need for fast ADC.
-constexpr int      SAMPLES   = 16;       // ~24 s window at 1.5 s
-constexpr uint32_t SAMPLE_MS = 1500;
+constexpr int      SAMPLES   = 20;       // ~5 s window at 0.25 s
+constexpr uint32_t SAMPLE_MS = 250;
 uint16_t gSamples[SAMPLES];
 int      gCount = 0;
 int      gIdx   = 0;
