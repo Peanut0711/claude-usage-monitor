@@ -373,6 +373,41 @@ void drawMessage(const String& title, const String& line) {
     present();
 }
 
+void drawTouchTest(bool touching, int rawX, int rawY, int mapX, int mapY) {
+    canvas.fillScreen(rgb(T_BG));
+    canvas.setTextDatum(textdatum_t::top_left);
+    canvas.setTextColor(rgb(T_CORAL));
+    canvas.setFont(&fonts::FreeSansBold12pt7b);
+    canvas.drawString("Touch test", 14, 10);
+
+    canvas.setFont(&fonts::FreeSans9pt7b);
+    canvas.setTextColor(rgb(T_MUTED));
+    canvas.drawString("Press the round button; read the values.", 14, 40);
+
+    canvas.setFont(&fonts::FreeSansBold18pt7b);
+    canvas.setTextColor(rgb(T_TITLE));
+    if (rawX < 0) {
+        canvas.drawString("(touch to begin)", 14, 90);
+    } else {
+        char a[40], b[40];
+        snprintf(a, sizeof(a), "raw: %d , %d", rawX, rawY);
+        snprintf(b, sizeof(b), "map: %d , %d", mapX, mapY);
+        canvas.drawString(a, 14, 80);
+        canvas.drawString(b, 14, 120);
+    }
+
+    // Live dot at the mapped position while touching.
+    if (touching && mapX >= 0)
+        canvas.fillCircle(mapX, mapY, 6, rgb(T_CORAL));
+
+    canvas.setTextDatum(textdatum_t::bottom_right);
+    canvas.setFont(&fonts::Font0);
+    canvas.setTextColor(rgb(touching ? T_GREEN : T_MUTED));
+    canvas.drawString(touching ? "TOUCHING" : "released",
+                      canvas.width() - 10, canvas.height() - 8);
+    present();
+}
+
 void drawApiError(int httpCode, const String& note) {
     drawHeader("API error");
 

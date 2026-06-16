@@ -34,21 +34,28 @@ bool begin() {
 
 bool available() { return gOk; }
 
+void mapXY(int rx, int ry, int& sx, int& sy) {
+    sx = TOUCH_SWAP_XY ? ry : rx;
+    sy = TOUCH_SWAP_XY ? rx : ry;
+    if (TOUCH_FLIP_X) sx = (480 - 1) - sx;
+    if (TOUCH_FLIP_Y) sy = (222 - 1) - sy;
+}
+
 bool read(int& x, int& y) {
     if (!gOk) return false;
     int16_t tx[1], ty[1];
     if (drv.getPoint(tx, ty, 1) < 1) return false;
+    mapXY(tx[0], ty[0], x, y);
+    return true;
+}
 
-    int rx = tx[0];   // native X (0..222)
-    int ry = ty[0];   // native Y (0..480)
-
-    int sx = TOUCH_SWAP_XY ? ry : rx;
-    int sy = TOUCH_SWAP_XY ? rx : ry;
-    if (TOUCH_FLIP_X) sx = (480 - 1) - sx;
-    if (TOUCH_FLIP_Y) sy = (222 - 1) - sy;
-
-    x = sx;
-    y = sy;
+bool readDebug(int& rawX, int& rawY, int& mapX, int& mapY) {
+    if (!gOk) return false;
+    int16_t tx[1], ty[1];
+    if (drv.getPoint(tx, ty, 1) < 1) return false;
+    rawX = tx[0];
+    rawY = ty[0];
+    mapXY(rawX, rawY, mapX, mapY);
     return true;
 }
 

@@ -23,7 +23,7 @@
 
 namespace {
 
-enum class State { Setup, Unlock, Running };
+enum class State { Setup, Unlock, Running, TouchTest };
 State    gState;
 String   gSsid;          // remembered for the status screen
 String   gToken;         // decrypted OAuth token, held in RAM while running
@@ -235,6 +235,14 @@ void setup() {
     }
     Serial.println("[display] init OK");
 
+#if CUM_TOUCH_TEST
+    gTouchOn = touch::begin();
+    gState = State::TouchTest;
+    display::drawTouchTest(false, -1, -1, -1, -1);
+    Serial.printf("[touchtest] touch=%d\n", gTouchOn);
+    return;
+#endif
+
     credentials::begin();
     power::begin();
     light::begin();
@@ -260,6 +268,17 @@ void setup() {
 }
 
 void loop() {
+#if CUM_TOUCH_TEST
+    if (gState == State::TouchTest) {
+        static int rx = -1, ry = -1, mx = -1, my = -1;
+        int a, b, c, d;
+        bool down = touch::readDebug(a, b, c, d);
+        if (down) { rx = a; ry = b; mx = c; my = d; }
+        display::drawTouchTest(down, rx, ry, mx, my);
+        delay(60);
+        return;
+    }
+#endif
     autoBright();
     switch (gState) {
         case State::Setup:

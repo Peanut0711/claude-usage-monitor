@@ -18,4 +18,7 @@ bool available();
 // returns true; otherwise returns false.
 bool read(int& x, int& y);
 
+// Diagnostic: also exposes the raw (pre-mapping) controller coordinates.
+bool readDebug(int& rawX, int& rawY, int& mapX, int& mapY);
+
 }  // namespace touch

@@ -69,4 +69,7 @@ void drawKeypad(int enteredLen, const String& note);
 // Map a touch point to a key: '0'..'9', 'C' (clear), '<' (backspace), or 0.
 char keypadHit(int x, int y);
 
+// Diagnostic: show the last touch's raw + mapped coordinates.
+void drawTouchTest(bool touching, int rawX, int rawY, int mapX, int mapY);
+
 }  // namespace display

@@ -8,6 +8,10 @@
 
 #include <stdint.h>
 
+// Diagnostic: boot straight into a touch-coordinate test screen (no WiFi/unlock)
+// to inspect touch coordinates. Set to 1 to enable; 0 = normal boot.
+#define CUM_TOUCH_TEST 0
+
 // Local, git-ignored secrets (AP password). Falls back to a placeholder so the
 // project still builds without it — but change it before trusting setup mode.
 #if __has_include("secrets.h")
