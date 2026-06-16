@@ -1,0 +1,34 @@
+// ============================================================================
+//  Storage.h  -  NVS persistence for sealed credential blobs + counters
+//
+//  Thin wrapper over the Arduino Preferences (NVS) API. Stores only opaque
+//  sealed blobs (see Crypto) plus small bookkeeping values; it never sees
+//  plaintext credentials or the PIN.
+// ============================================================================
+#pragma once
+
+#include <Arduino.h>
+#include <stddef.h>
+#include <stdint.h>
+
+namespace storage {
+
+// True once a token blob has been written (setup completed at least once).
+bool isProvisioned();
+void setProvisioned(bool value);
+
+// Sealed-blob get/put. putBlob returns false on NVS write error; getBlob
+// returns the number of bytes read (0 if the key is missing or buf too small).
+bool   putBlob(const char* key, const uint8_t* data, size_t len);
+size_t getBlob(const char* key, uint8_t* buf, size_t bufLen);
+size_t blobLen(const char* key);
+
+// Consecutive failed-unlock counter (lockout / wipe policy lives in
+// CredentialStore; this is just the persisted integer).
+uint8_t pinFails();
+void    setPinFails(uint8_t value);
+
+// Erase every key in the namespace (factory reset back to setup mode).
+void wipeAll();
+
+}  // namespace storage
