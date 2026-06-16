@@ -285,6 +285,8 @@ void drawDashboard(const Dashboard& d) {
 
     drawBattery(canvas.width() - 42, 9, d.battery, d.charging);
     drawWifiBars(canvas.width() - 74, 9, d.rssi);
+    if (d.stale)                                   // last poll failed
+        canvas.fillCircle(canvas.width() - 90, 16, 4, rgb(T_CUR));
 
     // ---- Cards ------------------------------------------------------------
     drawMetricCard(34,  "Current", d.current, d.currentReset, T_CUR);

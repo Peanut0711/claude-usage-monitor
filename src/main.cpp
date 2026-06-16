@@ -147,6 +147,7 @@ api::Usage    gLastUsage;            // last result (drives dashboard + detail)
 bool          gPollAnimate = false;
 int           gAnimFrame   = 0;
 bool          gShowDetail  = false;  // IO12 toggles dashboard <-> detail
+bool          gStale       = false;  // last poll failed; showing previous data
 
 void pollTaskFn(void*) {
     gPollResult = api::poll(gToken);   // ~1s blocking, off the UI core
@@ -193,6 +194,7 @@ void renderCurrentView() {
         d.battery      = power::percent();
         d.charging     = power::charging();
         d.status       = kStatus[gStatusIdx % (sizeof(kStatus) / sizeof(kStatus[0]))];
+        d.stale        = gStale;
         display::drawDashboard(d);
     } else {
         const char* note = gLastUsage.httpCode == 401 ? "Auth rejected - check token"
@@ -435,11 +437,18 @@ void loop() {
                 display::setBrightness(b);
             }
 
-            // Consume a finished poll.
+            // Consume a finished poll. Keep the last good data on failure.
             if (gPollDone) {
                 gPollDone = false;
-                gLastUsage = gPollResult;
-                gStatusIdx++;
+                if (gPollResult.ok) {
+                    gLastUsage = gPollResult;        // fresh good data
+                    gStale = false;
+                    gStatusIdx++;
+                } else if (gLastUsage.ok) {
+                    gStale = true;                   // keep showing prior data
+                } else {
+                    gLastUsage = gPollResult;        // never had data -> error screen
+                }
                 renderCurrentView();
             }
 

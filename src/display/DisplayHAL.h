@@ -60,6 +60,7 @@ struct Dashboard {
     int    battery      = 100;  // percent 0..100 (placeholder until PMU)
     bool   charging     = true; // on USB / charging
     String status;              // playful footer line
+    bool   stale        = false; // last poll failed; showing previous data
 };
 
 // Full themed dashboard: mascot, title, WiFi + battery, two colored bars with
