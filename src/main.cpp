@@ -32,6 +32,7 @@ uint32_t gLastPoll = 0;  // millis() of the last API poll
 String   gPin;           // PIN digits typed on the touch keypad
 bool     gTouchOn = false;
 bool     gWasTouched = false;
+bool     gScreenOff = false;  // backlight toggled off (double-tap)
 
 void enterRunning();     // forward decl (tryPin -> enterRunning)
 
@@ -58,7 +59,7 @@ bool sideButtonDown() {
 // sensor. The 600 reference scales "bright room" -> full brightness; tune to
 // taste.
 void autoBright() {
-    if (!light::available()) return;
+    if (gScreenOff || !light::available()) return;   // paused while off
     static uint32_t last = 0;
     static float    ema = -1;
     static int      curBr = 0;
@@ -73,6 +74,27 @@ void autoBright() {
         curBr = b;
         display::setBrightness(b);
     }
+}
+
+// Double-tap anywhere toggles the backlight on/off (power saving). Touch works
+// even with the backlight off, so a double-tap also wakes the screen.
+void handleDoubleTap() {
+    if (!gTouchOn) return;
+    static bool     was = false;
+    static uint32_t lastTap = 0;
+    int x, y;
+    bool down = touch::read(x, y);
+    if (down && !was) {                       // tap (rising edge)
+        uint32_t now = millis();
+        if (now - lastTap < 400) {            // second tap -> toggle
+            gScreenOff = !gScreenOff;
+            display::setBrightness(gScreenOff ? 0 : 200);  // autoBright refines
+            lastTap = 0;
+        } else {
+            lastTap = now;
+        }
+    }
+    was = down;
 }
 
 // Edge-detected side-button press (for manual refresh in Running state).
@@ -264,6 +286,8 @@ void loop() {
         }
 
         case State::Running:
+            handleDoubleTap();
+            if (gScreenOff) { delay(30); break; }   // screen off: skip work
             if (sideButtonPressed()) {          // manual refresh
                 Serial.println("[run] manual refresh");
                 display::drawMessage("Usage", "Refreshing...");
