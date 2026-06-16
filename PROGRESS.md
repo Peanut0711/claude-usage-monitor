@@ -120,8 +120,13 @@ Anthropic API 폴링 + rate-limit 헤더 파싱 + 대시보드까지 구현·검
    SWAP=1, FLIP_Y=1로 동작 확인). lib_deps에 `lewisxhe/SensorLib@^0.2.4`.
 2. ✅ **더블버퍼링** — 모든 드로잉을 PSRAM `LGFX_Sprite canvas`에 그린 뒤 `pushSprite`
    한 번에 전송 → 티어링/깜빡임 제거. (`DisplayHAL.cpp`)
-3. 🔜 즉시 새로고침 버튼(IO12/IO16), 화면 페이지 전환.
-4. 🔜 **SY6970 PMU 브링업**(I²C 0x6A) → 실제 배터리 잔량/충전상태.
+3. ✅ **즉시 새로고침** — Running 상태에서 사이드 버튼(IO12/IO16) 누르면 바로 폴링
+   (`main.cpp sideButtonPressed`). 부팅 시 같은 버튼 길게 = 초기화(동작 분리).
+4. ✅ **SY6970 PMU 배터리** — XPowersLib `PowersSY6970`(I²C 0x6A, 연속 ADC).
+   전압→1S Li-ion 곡선으로 잔량 추정, `isCharging()||isVbusIn()`로 충전표시.
+   배터리 없으면 USB 구동으로 보고 100%/충전. (`src/power/Power.*`)
+   lib_deps에 `lewisxhe/XPowersLib@^0.2.6`(설치된 건 0.2.9).
+5. 🔜 (선택) 화면 페이지 전환(상세/네트워크/히스토리), 자동 밝기(조도센서), 커스텀 폰트.
 
 ## ⏭️ 이후 단계
 
