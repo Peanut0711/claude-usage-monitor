@@ -269,7 +269,7 @@ void drawMetricCard(int yc, const char* label, float pct, const String& reset,
     canvas.setFont(&fonts::FreeSans12pt7b);
     canvas.setTextDatum(textdatum_t::top_left);
     canvas.setTextColor(rgb(0xC8BEDC));
-    canvas.drawString("Resets in " + reset, bx, yc + 56);
+    canvas.drawString("Resets in " + reset, bx, yc + 58);
 }
 }  // namespace
 
