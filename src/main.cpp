@@ -31,7 +31,35 @@ uint32_t gLastPoll = 0;  // millis() of the last API poll
 String   gPin;           // PIN digits typed on the touch keypad
 bool     gTouchOn = false;
 bool     gWasTouched = false;
-bool     gScreenOff = false;  // backlight toggled off (double-tap)
+
+// --- Backlight / inactivity -------------------------------------------------
+uint32_t gLastInput  = 0;     // millis() of last input (touch/button)
+bool     gManualOff  = false; // user forced backlight off via IO16
+uint8_t  gActiveBright = 200; // brightness when awake (left-edge drag sets it)
+int      gCurBright  = -1;    // last applied brightness (cache)
+constexpr uint32_t DIM_MS    = 30000;   // idle -> dim (30 s)
+constexpr uint32_t OFF_MS    = 90000;   // idle -> off (90 s)
+constexpr uint8_t  DIM_LEVEL = 45;
+
+void noteInput() { gLastInput = millis(); }
+
+bool screenAsleep() {
+    return gManualOff || (millis() - gLastInput > OFF_MS);
+}
+
+// Drive the backlight from manual-off / inactivity. Called at the top of loop.
+void applyBacklight() {
+    int t;
+    if (gManualOff) {
+        t = 0;
+    } else if (gState == State::Setup) {
+        t = gActiveBright;                 // keep the setup screen readable
+    } else {
+        uint32_t idle = millis() - gLastInput;
+        t = (idle > OFF_MS) ? 0 : (idle > DIM_MS) ? DIM_LEVEL : gActiveBright;
+    }
+    if (t != gCurBright) { gCurBright = t; display::setBrightness(t); }
+}
 
 void enterRunning();     // forward decl (tryPin -> enterRunning)
 
@@ -50,12 +78,6 @@ String fmtCountdown(long resetEpoch, time_t now) {
 // = backlight toggle). IO12 is intentionally unassigned.
 bool io16Down() {
     return digitalRead(TDS3_PIN_BTN_IO16) == LOW;
-}
-
-// Toggle the backlight (power saving). Touch keeps working with it off.
-void toggleBacklight() {
-    gScreenOff = !gScreenOff;
-    display::setBrightness(gScreenOff ? 0 : 200);   // restore default on wake
 }
 
 // Edge-detected IO16 press.
@@ -131,7 +153,6 @@ String fmtUptime() {
 
 // Draw whichever page is active from the last poll result + live sensors.
 void renderCurrentView() {
-    if (gScreenOff) return;
     time_t now = time(nullptr);
     if (gShowDetail) {
         display::Detail d;
@@ -176,6 +197,8 @@ void enterUnlock() {
     gState = State::Unlock;
     gPin = "";
     gWasTouched = false;
+    gManualOff = false;
+    noteInput();
     portal::beginUnlock();                  // web unlock stays as a fallback
     gTouchOn = touch::begin();
     String url = "http://" + net::localIP().toString();
@@ -205,6 +228,7 @@ void tryPin() {
 void handleKeypad() {
     int x, y;
     bool down = touch::read(x, y);
+    if (down) noteInput();
     if (down && !gWasTouched) {
         char k = display::keypadHit(x, y);
         if (k >= '0' && k <= '9') {
@@ -228,6 +252,8 @@ void enterRunning() {
     portal::stop();
     configTime(0, 0, CUM_NTP_SERVER);   // UTC epoch for reset countdowns
     gShowDetail = false;
+    gManualOff = false;
+    noteInput();
     pinMode(TDS3_PIN_BTN_IO12, INPUT_PULLUP);
     pinMode(TDS3_PIN_BTN_IO16, INPUT_PULLUP);
     Serial.println("[run] unlocked; polling Anthropic API");
@@ -298,6 +324,7 @@ void loop() {
         return;
     }
 #endif
+    applyBacklight();         // inactivity dim/off + manual off
     power::update();          // slow battery sampling (self-throttled)
     switch (gState) {
         case State::Setup:
@@ -313,63 +340,74 @@ void loop() {
             if (e == portal::Event::Unlocked) {     // web fallback succeeded
                 gToken = portal::token();
                 enterRunning();
-            } else if (e == portal::Event::Provisioned) {
+                break;
+            }
+            if (e == portal::Event::Provisioned) {
                 delay(300);                         // lockout wiped creds
                 ESP.restart();
-            } else {
-                if (io16Pressed()) {                // IO16 toggles backlight
-                    toggleBacklight();
-                    if (!gScreenOff) display::drawKeypad(gPin.length(), "");
+            }
+            bool asleep = screenAsleep();
+            if (io16Pressed()) {                    // IO16: wake or force off
+                if (asleep) { gManualOff = false; noteInput(); display::drawKeypad(gPin.length(), ""); }
+                else        { gManualOff = true; }
+            } else if (gTouchOn) {
+                if (asleep) {                        // first touch only wakes
+                    int x, y;
+                    if (touch::read(x, y)) { noteInput(); display::drawKeypad(gPin.length(), ""); }
+                } else {
+                    handleKeypad();                  // type (notes input)
                 }
-                // Keypad only when the screen is on (can't type blind).
-                if (!gScreenOff && gTouchOn) handleKeypad();
             }
             delay(20);
             break;
         }
 
         case State::Running: {
-            int tx, ty;
-            bool touching = touch::read(tx, ty);    // also drives Home event
+            bool asleep = screenAsleep();
 
-            // Home button -> manual refresh. One action per press; re-arm only
-            // after the repeated event stops for >300ms (finger lifted).
+            // IO16: wake (show current view) if off, else force off.
+            if (io16Pressed()) {
+                if (asleep) { gManualOff = false; noteInput(); renderCurrentView(); }
+                else        { gManualOff = true; }
+                delay(30);
+                break;
+            }
+
+            int tx, ty;
+            bool touching = touch::read(tx, ty);     // also drives Home event
+            bool homeNow  = touch::homePressed();
+            bool io12     = io12Pressed();
+            if (touching || homeNow || io12) noteInput();
+
+            if (asleep) {                            // first input only wakes
+                if (touching || homeNow || io12) renderCurrentView();
+                delay(30);
+                break;
+            }
+
+            // --- awake ---
+            // Home -> manual refresh. One per press; re-arm after release >300ms.
             static bool     armed = true;
             static uint32_t lastSeen = 0;
             uint32_t now = millis();
             bool homeFired = false;
-            if (touch::homePressed()) {
+            if (homeNow) {
                 lastSeen = now;
                 if (armed) { homeFired = true; armed = false; }
             } else if (now - lastSeen > 300) {
                 armed = true;
             }
 
-            // IO16 -> backlight on/off. Polling is paused while off, so on wake
-            // fetch fresh data (animated) instead of showing the stale screen.
-            if (io16Pressed()) {
-                toggleBacklight();
-                if (!gScreenOff) {
-                    requestPoll(true);
-                    gLastPoll = millis();
-                }
-            }
-
-            // IO12 -> toggle detail page.
-            if (io12Pressed()) {
-                gShowDetail = !gShowDetail;
-                renderCurrentView();
-            }
+            if (io12) { gShowDetail = !gShowDetail; renderCurrentView(); }
 
             // Brightness: drag vertically on the LEFT edge strip (top=bright).
-            if (!gScreenOff && touching && tx < 48) {
+            if (touching && tx < 48) {
                 int b = 255 - (ty - 4) * (255 - 25) / (218 - 4);
                 if (b < 25)  b = 25;
                 if (b > 255) b = 255;
+                gActiveBright = b; gCurBright = b;
                 display::setBrightness(b);
             }
-
-            if (gScreenOff) { delay(30); break; }   // screen off: skip work
 
             // Consume a finished poll.
             if (gPollDone) {
