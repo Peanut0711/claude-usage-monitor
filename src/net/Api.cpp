@@ -17,12 +17,13 @@ const char* kHeaderKeys[] = {
     "anthropic-ratelimit-unified-7d-reset",
 };
 
-}  // namespace
+static const char* kBody =
+    "{\"model\":\"" CUM_PROBE_MODEL "\",\"max_tokens\":1,"
+    "\"messages\":[{\"role\":\"user\",\"content\":\".\"}]}";
 
-namespace api {
-
-Usage poll(const String& token) {
-    Usage u;
+// One request attempt. httpCode > 0 means the server responded.
+api::Usage attempt(const String& token) {
+    api::Usage u;
 
     WiFiClientSecure client;
     // TODO(hardening): pin the api.anthropic.com CA instead of skipping
@@ -35,16 +36,14 @@ Usage poll(const String& token) {
         Serial.println("[api] begin() failed");
         return u;
     }
+    http.setConnectTimeout(15000);   // generous: occasional slow TLS handshakes
+    http.setTimeout(15000);
     http.setUserAgent(CUM_API_UA);
     http.addHeader("Authorization", "Bearer " + token);
     http.addHeader("anthropic-version", CUM_API_VERSION);
     http.addHeader("anthropic-beta", CUM_API_BETA);
     http.addHeader("content-type", "application/json");
     http.collectHeaders(kHeaderKeys, sizeof(kHeaderKeys) / sizeof(kHeaderKeys[0]));
-
-    static const char* kBody =
-        "{\"model\":\"" CUM_PROBE_MODEL "\",\"max_tokens\":1,"
-        "\"messages\":[{\"role\":\"user\",\"content\":\".\"}]}";
 
     int code = http.POST((uint8_t*)kBody, strlen(kBody));
     u.httpCode = code;
@@ -67,6 +66,21 @@ Usage poll(const String& token) {
     }
 
     http.end();
+    return u;
+}
+
+}  // namespace
+
+namespace api {
+
+Usage poll(const String& token) {
+    Usage u;
+    for (int i = 0; i < 2; i++) {           // retry once on a transport error
+        u = attempt(token);
+        if (u.httpCode > 0) break;          // server responded (even an error)
+        Serial.printf("[api] transport error %d; retrying\n", u.httpCode);
+        delay(400);
+    }
     return u;
 }
 
