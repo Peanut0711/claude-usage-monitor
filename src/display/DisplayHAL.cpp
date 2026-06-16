@@ -295,11 +295,14 @@ void drawDashboard(const Dashboard& d) {
 }
 
 namespace {
-// Keypad layout (shared by drawKeypad + keypadHit). 3 columns x 4 rows below a
-// header band; the bottom row is Clear / 0 / Backspace.
-constexpr int KP_TOP  = 46;
+// Centered keypad: 3 cols x 4 rows of compact cells (not stretched across the
+// full width). Bottom row is Clear / 0 / Backspace.
 constexpr int KP_COLS = 3;
 constexpr int KP_ROWS = 4;
+constexpr int KP_CW   = 96;                       // cell width
+constexpr int KP_CH   = 42;                       // cell height
+constexpr int KP_X0   = (480 - KP_COLS * KP_CW) / 2;   // centered -> 96
+constexpr int KP_Y0   = 44;
 const char KP_GRID[KP_ROWS][KP_COLS] = {
     {'1', '2', '3'},
     {'4', '5', '6'},
@@ -309,26 +312,25 @@ const char KP_GRID[KP_ROWS][KP_COLS] = {
 }  // namespace
 
 char keypadHit(int x, int y) {
-    if (y < KP_TOP) return 0;
-    int cw = lcd.width() / KP_COLS;
-    int chh = (lcd.height() - KP_TOP) / KP_ROWS;
-    int col = x / cw, row = (y - KP_TOP) / chh;
-    if (col < 0) col = 0; if (col >= KP_COLS) col = KP_COLS - 1;
-    if (row < 0) row = 0; if (row >= KP_ROWS) row = KP_ROWS - 1;
+    int col = (x - KP_X0) / KP_CW;
+    int row = (y - KP_Y0) / KP_CH;
+    if (x < KP_X0 || y < KP_Y0 || col < 0 || col >= KP_COLS ||
+        row < 0 || row >= KP_ROWS)
+        return 0;
     return KP_GRID[row][col];
 }
 
 void drawKeypad(int enteredLen, const String& note) {
     canvas.fillScreen(rgb(T_BG));
 
-    // Header: title + PIN dots + optional note.
+    // Header: title + centered PIN dots + optional note.
     canvas.setFont(&fonts::FreeSansBold12pt7b);
     canvas.setTextDatum(textdatum_t::top_left);
     canvas.setTextColor(rgb(T_TITLE));
-    canvas.drawString("Enter PIN", 14, 10);
+    canvas.drawString("Enter PIN", 14, 12);
 
     for (int i = 0; i < 4; i++) {
-        int cx = 188 + i * 26, cy = 22;
+        int cx = 248 + i * 24, cy = 22;
         if (i < enteredLen) canvas.fillCircle(cx, cy, 7, rgb(T_CORAL));
         else                canvas.drawCircle(cx, cy, 7, rgb(T_TRACK));
     }
@@ -336,16 +338,14 @@ void drawKeypad(int enteredLen, const String& note) {
         canvas.setFont(&fonts::FreeSans9pt7b);
         canvas.setTextDatum(textdatum_t::top_right);
         canvas.setTextColor(rgb(T_CORAL));
-        canvas.drawString(note, canvas.width() - 12, 14);
+        canvas.drawString(note, canvas.width() - 12, 16);
     }
 
-    // Keys.
-    int cw = canvas.width() / KP_COLS;
-    int chh = (canvas.height() - KP_TOP) / KP_ROWS;
+    // Keys (centered cluster).
     for (int row = 0; row < KP_ROWS; row++) {
         for (int col = 0; col < KP_COLS; col++) {
-            int kx = col * cw, ky = KP_TOP + row * chh;
-            canvas.fillRoundRect(kx + 5, ky + 4, cw - 10, chh - 8, 8, rgb(T_CARD));
+            int kx = KP_X0 + col * KP_CW, ky = KP_Y0 + row * KP_CH;
+            canvas.fillRoundRect(kx + 4, ky + 4, KP_CW - 8, KP_CH - 8, 8, rgb(T_CARD));
             char k = KP_GRID[row][col];
             const char* label = (k == 'C') ? "CLR" : (k == '<') ? "DEL" : nullptr;
             char one[2] = {k, 0};
@@ -353,11 +353,11 @@ void drawKeypad(int enteredLen, const String& note) {
             if (label) {
                 canvas.setFont(&fonts::FreeSansBold9pt7b);
                 canvas.setTextColor(rgb(T_CORAL));
-                canvas.drawString(label, kx + cw / 2, ky + chh / 2);
+                canvas.drawString(label, kx + KP_CW / 2, ky + KP_CH / 2);
             } else {
                 canvas.setFont(&fonts::FreeSansBold18pt7b);
                 canvas.setTextColor(rgb(T_TITLE));
-                canvas.drawString(one, kx + cw / 2, ky + chh / 2);
+                canvas.drawString(one, kx + KP_CW / 2, ky + KP_CH / 2);
             }
         }
     }

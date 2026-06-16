@@ -13,6 +13,7 @@
 #include "board_pins.h"
 #include "config.h"
 #include "display/DisplayHAL.h"
+#include "input/Light.h"
 #include "input/Touch.h"
 #include "net/Api.h"
 #include "net/Net.h"
@@ -51,6 +52,27 @@ String fmtCountdown(long resetEpoch, time_t now) {
 bool sideButtonDown() {
     return digitalRead(TDS3_PIN_BTN_IO12) == LOW ||
            digitalRead(TDS3_PIN_BTN_IO16) == LOW;
+}
+
+// Adjust backlight to ambient light (throttled, smoothed). No-op without the
+// sensor. The 600 reference scales "bright room" -> full brightness; tune to
+// taste.
+void autoBright() {
+    if (!light::available()) return;
+    static uint32_t last = 0;
+    static float    ema = -1;
+    static int      curBr = 0;
+    if (millis() - last < 400) return;
+    last = millis();
+    uint16_t r = light::raw();
+    ema = (ema < 0) ? r : (ema * 0.8f + r * 0.2f);
+    int b = 40 + (int)(ema * (255 - 40) / 600.0f);
+    if (b < 40) b = 40;
+    if (b > 255) b = 255;
+    if (curBr == 0 || abs(b - curBr) >= 8) {
+        curBr = b;
+        display::setBrightness(b);
+    }
 }
 
 // Edge-detected side-button press (for manual refresh in Running state).
@@ -193,6 +215,7 @@ void setup() {
 
     credentials::begin();
     power::begin();
+    light::begin();
     if (factoryResetRequested()) {
         Serial.println("[reset] BOOT held -> wiping credentials");
         credentials::wipe();
@@ -215,6 +238,7 @@ void setup() {
 }
 
 void loop() {
+    autoBright();
     switch (gState) {
         case State::Setup:
             if (portal::handle() == portal::Event::Provisioned) {
