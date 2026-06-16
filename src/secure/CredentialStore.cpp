@@ -30,6 +30,8 @@ bool sealAndStore(const char* key, const uint8_t k[crypto::KEY_LEN],
 
 namespace credentials {
 
+void begin() { storage::begin(); }
+
 bool isProvisioned() { return storage::isProvisioned(); }
 uint8_t failCount()  { return storage::pinFails(); }
 

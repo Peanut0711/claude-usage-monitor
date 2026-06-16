@@ -24,6 +24,11 @@ struct Scoped {
 
 namespace storage {
 
+void begin() {
+    // Opening read-write creates the namespace if absent; end() commits it.
+    Scoped s(false);
+}
+
 bool isProvisioned() {
     Scoped s(true);
     return s.prefs.getUChar(CUM_NVS_PROVISIONED, 0) != 0;

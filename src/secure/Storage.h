@@ -13,6 +13,10 @@
 
 namespace storage {
 
+// Create the NVS namespace if it does not exist yet. Call once at boot before
+// any read so the first read-only open() doesn't log a spurious NOT_FOUND.
+void begin();
+
 // True once a token blob has been written (setup completed at least once).
 bool isProvisioned();
 void setProvisioned(bool value);

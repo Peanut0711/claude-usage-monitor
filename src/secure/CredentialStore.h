@@ -15,6 +15,9 @@
 
 namespace credentials {
 
+// Initialise the backing store. Call once at boot before any other call.
+void begin();
+
 // --- Provisioning (called once from the captive portal) ---------------------
 // Seals WiFi creds under the device key and the token under the PIN key, then
 // marks the device provisioned. Returns false on any crypto/NVS failure.

@@ -79,4 +79,73 @@ void drawTestScreen() {
     lcd.drawString("Stage 1 - display OK", 16, H - 10);
 }
 
+namespace {
+// Shared header used by the Stage 2 screens.
+void drawHeader(const char* title) {
+    lcd.fillScreen(rgb(COL_BG));
+    lcd.setTextDatum(textdatum_t::top_left);
+    lcd.setTextColor(rgb(COL_ACCENT));
+    lcd.setFont(&fonts::FreeSansBold12pt7b);
+    lcd.drawString(title, 16, 16);
+}
+
+// "label: value" row in the muted/label palette.
+void drawRow(const char* label, const String& value, int y) {
+    lcd.setFont(&fonts::FreeSans9pt7b);
+    lcd.setTextColor(rgb(COL_SUB));
+    lcd.drawString(label, 16, y);
+    lcd.setTextColor(rgb(COL_TITLE));
+    lcd.drawString(value, 150, y);
+}
+}  // namespace
+
+void drawProvisioning(const String& apSsid, const String& apPass,
+                      const String& portalIp) {
+    drawHeader("Setup mode");
+
+    lcd.setFont(&fonts::FreeSans9pt7b);
+    lcd.setTextColor(rgb(COL_LABEL));
+    lcd.drawString("Join this WiFi, then open the page:", 16, 56);
+
+    drawRow("WiFi:", apSsid, 88);
+    drawRow("Pass:", apPass, 116);
+    drawRow("Open:", "http://" + portalIp, 144);
+
+    lcd.setTextDatum(textdatum_t::bottom_left);
+    lcd.setFont(&fonts::Font0);
+    lcd.setTextColor(rgb(COL_FOOTER));
+    lcd.drawString("Stage 2 - awaiting setup", 16, lcd.height() - 10);
+}
+
+void drawUnlock(const String& portalUrl, int failsRemaining) {
+    drawHeader("Locked");
+
+    lcd.setFont(&fonts::FreeSans9pt7b);
+    lcd.setTextColor(rgb(COL_LABEL));
+    lcd.drawString("Open this page and enter your PIN:", 16, 56);
+
+    drawRow("Open:", portalUrl, 92);
+
+    lcd.setTextColor(failsRemaining <= 3 ? rgb(COL_ACCENT) : rgb(COL_SUB));
+    lcd.drawString(String(failsRemaining) + " attempt(s) before wipe", 16, 124);
+
+    lcd.setTextDatum(textdatum_t::bottom_left);
+    lcd.setFont(&fonts::Font0);
+    lcd.setTextColor(rgb(COL_FOOTER));
+    lcd.drawString("Stage 2 - awaiting PIN", 16, lcd.height() - 10);
+}
+
+void drawStatus(const String& ssid, const String& ip, int rssi) {
+    drawHeader("Claude Usage Monitor");
+
+    drawRow("WiFi:", ssid, 64);
+    drawRow("IP:", ip, 92);
+    drawRow("Signal:", String(rssi) + " dBm", 120);
+
+    lcd.setTextDatum(textdatum_t::bottom_left);
+    lcd.setFont(&fonts::Font0);
+    lcd.setTextColor(rgb(COL_FOOTER));
+    lcd.drawString("Stage 2 - connected & unlocked", 16, lcd.height() - 10);
+}
+
 }  // namespace display
