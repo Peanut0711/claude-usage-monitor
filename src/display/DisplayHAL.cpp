@@ -324,13 +324,15 @@ void drawRefreshAnim(int frame) {
     int sw = 48 - oy;
     canvas.fillRoundRect(canvas.width() / 2 - sw / 2, 104, sw, 6, 3, rgb(T_TRACK));
 
-    // "Refreshing" with cycling dots.
-    String t = "Refreshing";
-    for (int i = 0; i < frame % 4; i++) t += ".";
+    // "Refreshing" + slow cycling dots. Left-anchored at a fixed x so the word
+    // stays put (centred on its max width) and only the dots grow.
     canvas.setFont(&fonts::FreeSansBold12pt7b);
-    canvas.setTextDatum(textdatum_t::top_center);
+    String t = "Refreshing";
+    for (int i = 0; i < (frame / 5) % 4; i++) t += ".";   // ~350ms per step
+    int x = canvas.width() / 2 - canvas.textWidth("Refreshing...") / 2;
+    canvas.setTextDatum(textdatum_t::top_left);
     canvas.setTextColor(rgb(T_CORAL));
-    canvas.drawString(t, canvas.width() / 2, 140);
+    canvas.drawString(t, x, 140);
     present();
 }
 
