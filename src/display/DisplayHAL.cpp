@@ -329,8 +329,11 @@ void drawKeypad(int enteredLen, const String& note) {
     canvas.setTextColor(rgb(T_TITLE));
     canvas.drawString("Enter PIN", 14, 12);
 
+    // 4 dots centered on the screen (group midpoint at width/2).
+    const int dotGap = 24;
+    const int dotX0  = canvas.width() / 2 - (3 * dotGap) / 2;   // -> 204
     for (int i = 0; i < 4; i++) {
-        int cx = 248 + i * 24, cy = 22;
+        int cx = dotX0 + i * dotGap, cy = 22;
         if (i < enteredLen) canvas.fillCircle(cx, cy, 7, rgb(T_CORAL));
         else                canvas.drawCircle(cx, cy, 7, rgb(T_TRACK));
     }

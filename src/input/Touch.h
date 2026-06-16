@@ -21,4 +21,11 @@ bool read(int& x, int& y);
 // Diagnostic: also exposes the raw (pre-mapping) controller coordinates.
 bool readDebug(int& rawX, int& rawY, int& mapX, int& mapY);
 
+// Drive the controller (reads the report so the Home-button event can fire).
+// Call once per loop where you want the Home button to be responsive.
+void poll();
+
+// True once if the front round Home button was pressed since the last call.
+bool homePressed();
+
 }  // namespace touch
