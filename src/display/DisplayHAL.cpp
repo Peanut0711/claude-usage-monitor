@@ -1,10 +1,16 @@
 // ============================================================================
 //  DisplayHAL.cpp  -  implementation of the display drawing layer
+//
+//  All drawing happens on an off-screen sprite (canvas) in PSRAM and is blitted
+//  to the panel in one pushSprite() per frame. This double-buffering removes the
+//  clear-then-redraw flicker/tearing of drawing straight to the SPI panel.
 // ============================================================================
 #include "DisplayHAL.h"
 
 namespace {
 LGFX_TDisplayS3Pro lcd;
+lgfx::LGFX_Sprite  canvas(&lcd);   // off-screen frame buffer (PSRAM)
+bool canvasReady = false;
 
 // Anthropic-ish accent / palette (RGB888).
 constexpr uint32_t COL_BG      = 0x0E1016;  // near-black background
@@ -16,10 +22,15 @@ constexpr uint32_t COL_ACCENT  = 0xD97757;  // Anthropic coral
 constexpr uint32_t COL_BORDER  = 0x3A404A;
 constexpr uint32_t COL_FOOTER  = 0x6A7079;
 
-// Expand a 0xRRGGBB literal into the panel's native color. Masking each
-// channel keeps color888() from emitting -Woverflow on the truncation.
+// Expand a 0xRRGGBB literal into a 24-bit color (draw calls convert it to the
+// target depth). Masking each channel keeps it tidy.
 inline uint32_t rgb(uint32_t hex) {
     return lcd.color888((hex >> 16) & 0xFF, (hex >> 8) & 0xFF, hex & 0xFF);
+}
+
+// Blit the finished frame to the panel.
+void present() {
+    if (canvasReady) canvas.pushSprite(0, 0);
 }
 }  // namespace
 
@@ -36,66 +47,75 @@ bool begin(uint8_t brightness) {
     lcd.setRotation(1);             // landscape -> 480 (W) x 222 (H)
     lcd.setBrightness(brightness);
     lcd.fillScreen(rgb(COL_BG));
+
+    canvas.setPsram(true);
+    canvas.setColorDepth(16);
+    canvasReady = (canvas.createSprite(lcd.width(), lcd.height()) != nullptr);
+    if (canvasReady) {
+        canvas.fillScreen(rgb(COL_BG));
+        present();
+    }
     return true;
 }
 
 void drawTestScreen() {
-    const int W = lcd.width();      // 480
-    const int H = lcd.height();     // 222
+    const int W = canvas.width();   // 480
+    const int H = canvas.height();  // 222
 
-    lcd.fillScreen(rgb(COL_BG));
+    canvas.fillScreen(rgb(COL_BG));
 
     // ---- Title ------------------------------------------------------------
-    lcd.setTextDatum(textdatum_t::top_left);
-    lcd.setTextColor(rgb(COL_TITLE));
-    lcd.setFont(&fonts::FreeSansBold12pt7b);
-    lcd.drawString("Claude Usage Monitor", 16, 16);
+    canvas.setTextDatum(textdatum_t::top_left);
+    canvas.setTextColor(rgb(COL_TITLE));
+    canvas.setFont(&fonts::FreeSansBold12pt7b);
+    canvas.drawString("Claude Usage Monitor", 16, 16);
 
-    lcd.setFont(&fonts::FreeSans9pt7b);
-    lcd.setTextColor(rgb(COL_SUB));
-    lcd.drawString("ST7796 / LovyanGFX  -  480 x 222", 16, 48);
+    canvas.setFont(&fonts::FreeSans9pt7b);
+    canvas.setTextColor(rgb(COL_SUB));
+    canvas.drawString("ST7796 / LovyanGFX  -  480 x 222", 16, 48);
 
     // ---- Self-test label --------------------------------------------------
-    lcd.setTextColor(rgb(COL_LABEL));
-    lcd.drawString("Display self-test", 16, 92);
+    canvas.setTextColor(rgb(COL_LABEL));
+    canvas.drawString("Display self-test", 16, 92);
 
     // ---- Colored utilization bar -----------------------------------------
     const int   bx = 16, by = 120, bw = W - 32, bh = 36, r = 9;
     const float pct = 0.65f;        // placeholder fill
 
-    lcd.fillRoundRect(bx, by, bw, bh, r, rgb(COL_TRACK));
-    lcd.fillRoundRect(bx, by, (int)(bw * pct), bh, r, rgb(COL_ACCENT));
-    lcd.drawRoundRect(bx, by, bw, bh, r, rgb(COL_BORDER));
+    canvas.fillRoundRect(bx, by, bw, bh, r, rgb(COL_TRACK));
+    canvas.fillRoundRect(bx, by, (int)(bw * pct), bh, r, rgb(COL_ACCENT));
+    canvas.drawRoundRect(bx, by, bw, bh, r, rgb(COL_BORDER));
 
-    lcd.setTextDatum(textdatum_t::middle_center);
-    lcd.setTextColor(TFT_WHITE);
-    lcd.setFont(&fonts::FreeSansBold9pt7b);
-    lcd.drawString("65%", bx + bw / 2, by + bh / 2);
+    canvas.setTextDatum(textdatum_t::middle_center);
+    canvas.setTextColor(TFT_WHITE);
+    canvas.setFont(&fonts::FreeSansBold9pt7b);
+    canvas.drawString("65%", bx + bw / 2, by + bh / 2);
 
     // ---- Footer -----------------------------------------------------------
-    lcd.setTextDatum(textdatum_t::bottom_left);
-    lcd.setFont(&fonts::Font0);
-    lcd.setTextColor(rgb(COL_FOOTER));
-    lcd.drawString("Stage 1 - display OK", 16, H - 10);
+    canvas.setTextDatum(textdatum_t::bottom_left);
+    canvas.setFont(&fonts::Font0);
+    canvas.setTextColor(rgb(COL_FOOTER));
+    canvas.drawString("Stage 1 - display OK", 16, H - 10);
+    present();
 }
 
 namespace {
-// Shared header used by the Stage 2 screens.
+// Shared header used by the simple status screens.
 void drawHeader(const char* title) {
-    lcd.fillScreen(rgb(COL_BG));
-    lcd.setTextDatum(textdatum_t::top_left);
-    lcd.setTextColor(rgb(COL_ACCENT));
-    lcd.setFont(&fonts::FreeSansBold12pt7b);
-    lcd.drawString(title, 16, 16);
+    canvas.fillScreen(rgb(COL_BG));
+    canvas.setTextDatum(textdatum_t::top_left);
+    canvas.setTextColor(rgb(COL_ACCENT));
+    canvas.setFont(&fonts::FreeSansBold12pt7b);
+    canvas.drawString(title, 16, 16);
 }
 
 // "label: value" row in the muted/label palette.
 void drawRow(const char* label, const String& value, int y) {
-    lcd.setFont(&fonts::FreeSans9pt7b);
-    lcd.setTextColor(rgb(COL_SUB));
-    lcd.drawString(label, 16, y);
-    lcd.setTextColor(rgb(COL_TITLE));
-    lcd.drawString(value, 150, y);
+    canvas.setFont(&fonts::FreeSans9pt7b);
+    canvas.setTextColor(rgb(COL_SUB));
+    canvas.drawString(label, 16, y);
+    canvas.setTextColor(rgb(COL_TITLE));
+    canvas.drawString(value, 150, y);
 }
 }  // namespace
 
@@ -103,36 +123,38 @@ void drawProvisioning(const String& apSsid, const String& apPass,
                       const String& portalIp) {
     drawHeader("Setup mode");
 
-    lcd.setFont(&fonts::FreeSans9pt7b);
-    lcd.setTextColor(rgb(COL_LABEL));
-    lcd.drawString("Join this WiFi, then open the page:", 16, 56);
+    canvas.setFont(&fonts::FreeSans9pt7b);
+    canvas.setTextColor(rgb(COL_LABEL));
+    canvas.drawString("Join this WiFi, then open the page:", 16, 56);
 
     drawRow("WiFi:", apSsid, 88);
     drawRow("Pass:", apPass, 116);
     drawRow("Open:", "http://" + portalIp, 144);
 
-    lcd.setTextDatum(textdatum_t::bottom_left);
-    lcd.setFont(&fonts::Font0);
-    lcd.setTextColor(rgb(COL_FOOTER));
-    lcd.drawString("Stage 2 - awaiting setup", 16, lcd.height() - 10);
+    canvas.setTextDatum(textdatum_t::bottom_left);
+    canvas.setFont(&fonts::Font0);
+    canvas.setTextColor(rgb(COL_FOOTER));
+    canvas.drawString("Stage 2 - awaiting setup", 16, canvas.height() - 10);
+    present();
 }
 
 void drawUnlock(const String& portalUrl, int failsRemaining) {
     drawHeader("Locked");
 
-    lcd.setFont(&fonts::FreeSans9pt7b);
-    lcd.setTextColor(rgb(COL_LABEL));
-    lcd.drawString("Open this page and enter your PIN:", 16, 56);
+    canvas.setFont(&fonts::FreeSans9pt7b);
+    canvas.setTextColor(rgb(COL_LABEL));
+    canvas.drawString("Open this page and enter your PIN:", 16, 56);
 
     drawRow("Open:", portalUrl, 92);
 
-    lcd.setTextColor(failsRemaining <= 3 ? rgb(COL_ACCENT) : rgb(COL_SUB));
-    lcd.drawString(String(failsRemaining) + " attempt(s) before wipe", 16, 124);
+    canvas.setTextColor(failsRemaining <= 3 ? rgb(COL_ACCENT) : rgb(COL_SUB));
+    canvas.drawString(String(failsRemaining) + " attempt(s) before wipe", 16, 124);
 
-    lcd.setTextDatum(textdatum_t::bottom_left);
-    lcd.setFont(&fonts::Font0);
-    lcd.setTextColor(rgb(COL_FOOTER));
-    lcd.drawString("Stage 2 - awaiting PIN", 16, lcd.height() - 10);
+    canvas.setTextDatum(textdatum_t::bottom_left);
+    canvas.setFont(&fonts::Font0);
+    canvas.setTextColor(rgb(COL_FOOTER));
+    canvas.drawString("Stage 2 - awaiting PIN", 16, canvas.height() - 10);
+    present();
 }
 
 void drawStatus(const String& ssid, const String& ip, int rssi) {
@@ -142,10 +164,11 @@ void drawStatus(const String& ssid, const String& ip, int rssi) {
     drawRow("IP:", ip, 92);
     drawRow("Signal:", String(rssi) + " dBm", 120);
 
-    lcd.setTextDatum(textdatum_t::bottom_left);
-    lcd.setFont(&fonts::Font0);
-    lcd.setTextColor(rgb(COL_FOOTER));
-    lcd.drawString("Stage 2 - connected & unlocked", 16, lcd.height() - 10);
+    canvas.setTextDatum(textdatum_t::bottom_left);
+    canvas.setFont(&fonts::Font0);
+    canvas.setTextColor(rgb(COL_FOOTER));
+    canvas.drawString("Stage 2 - connected & unlocked", 16, canvas.height() - 10);
+    present();
 }
 
 namespace {
@@ -171,7 +194,7 @@ void drawMascot(int x, int y, int s) {
     for (int r = 0; r < 8; r++)
         for (int c = 0; c < 11; c++)
             if ((MASCOT[r] >> (10 - c)) & 1)
-                lcd.fillRect(x + c * s, y + r * s, s, s, rgb(T_CORAL));
+                canvas.fillRect(x + c * s, y + r * s, s, s, rgb(T_CORAL));
 }
 
 void drawWifiBars(int x, int y, int rssi) {
@@ -183,115 +206,188 @@ void drawWifiBars(int x, int y, int rssi) {
                                : 0;
     for (int i = 0; i < 4; i++) {
         int h = 4 + i * 3;
-        lcd.fillRect(x + i * 6, y + 13 - h, 4, h, rgb(i < bars ? T_TITLE : T_TRACK));
+        canvas.fillRect(x + i * 6, y + 13 - h, 4, h, rgb(i < bars ? T_TITLE : T_TRACK));
     }
 }
 
 void drawBattery(int x, int y, int pct, bool charging) {
     const int w = 26, h = 13;
     if (pct < 0) pct = 0; if (pct > 100) pct = 100;
-    lcd.drawRoundRect(x, y, w, h, 2, rgb(T_TITLE));
-    lcd.fillRect(x + w, y + 4, 2, h - 8, rgb(T_TITLE));   // nub
+    canvas.drawRoundRect(x, y, w, h, 2, rgb(T_TITLE));
+    canvas.fillRect(x + w, y + 4, 2, h - 8, rgb(T_TITLE));   // nub
     uint32_t fill = (pct <= 15 && !charging) ? T_CORAL : T_GREEN;
     int fw = (w - 4) * pct / 100;
-    if (fw > 0) lcd.fillRect(x + 2, y + 2, fw, h - 4, rgb(fill));
-    if (charging) {                                       // little bolt
-        lcd.setFont(&fonts::Font0);
-        lcd.setTextDatum(textdatum_t::middle_center);
-        lcd.setTextColor(rgb(T_BG));
-        lcd.drawString("+", x + w / 2, y + h / 2);
+    if (fw > 0) canvas.fillRect(x + 2, y + 2, fw, h - 4, rgb(fill));
+    if (charging) {                                          // little bolt
+        canvas.setFont(&fonts::Font0);
+        canvas.setTextDatum(textdatum_t::middle_center);
+        canvas.setTextColor(rgb(T_BG));
+        canvas.drawString("+", x + w / 2, y + h / 2);
     }
 }
 
 // Rounded "pill" badge, right-aligned to rightX. Returns its left edge.
 int drawPill(const char* text, int rightX, int y) {
-    lcd.setFont(&fonts::FreeSansBold9pt7b);
-    int tw = lcd.textWidth(text);
+    canvas.setFont(&fonts::FreeSansBold9pt7b);
+    int tw = canvas.textWidth(text);
     int pw = tw + 22, ph = 24;
     int px = rightX - pw;
-    lcd.fillRoundRect(px, y, pw, ph, ph / 2, rgb(T_PILLBG));
-    lcd.setTextDatum(textdatum_t::middle_center);
-    lcd.setTextColor(rgb(T_PILLTX));
-    lcd.drawString(text, px + pw / 2, y + ph / 2 + 1);
+    canvas.fillRoundRect(px, y, pw, ph, ph / 2, rgb(T_PILLBG));
+    canvas.setTextDatum(textdatum_t::middle_center);
+    canvas.setTextColor(rgb(T_PILLTX));
+    canvas.drawString(text, px + pw / 2, y + ph / 2 + 1);
     return px;
 }
 
 void drawMetricCard(int yc, const char* label, float pct, const String& reset,
                     uint32_t barColor) {
     if (pct < 0) pct = 0; if (pct > 100) pct = 100;
-    const int cx = 12, cw = lcd.width() - 24, ch = 80;
-    lcd.fillRoundRect(cx, yc, cw, ch, 10, rgb(T_CARD));
+    const int cx = 12, cw = canvas.width() - 24, ch = 80;
+    canvas.fillRoundRect(cx, yc, cw, ch, 10, rgb(T_CARD));
 
     // Big percentage.
     char buf[8];
     snprintf(buf, sizeof(buf), "%d%%", (int)(pct + 0.5f));
-    lcd.setFont(&fonts::FreeSansBold18pt7b);
-    lcd.setTextDatum(textdatum_t::top_left);
-    lcd.setTextColor(rgb(T_TITLE));
-    lcd.drawString(buf, cx + 18, yc + 8);
+    canvas.setFont(&fonts::FreeSansBold18pt7b);
+    canvas.setTextDatum(textdatum_t::top_left);
+    canvas.setTextColor(rgb(T_TITLE));
+    canvas.drawString(buf, cx + 18, yc + 8);
 
     drawPill(label, cx + cw - 16, yc + 10);
 
     // Bar.
     const int bx = cx + 18, bw = cw - 36, by = yc + 44, bh = 14, r = 7;
-    lcd.fillRoundRect(bx, by, bw, bh, r, rgb(T_TRACK));
+    canvas.fillRoundRect(bx, by, bw, bh, r, rgb(T_TRACK));
     int fw = (int)(bw * pct / 100.0f);
-    if (fw > 0) lcd.fillRoundRect(bx, by, fw < bh ? bh : fw, bh, r, rgb(barColor));
+    if (fw > 0) canvas.fillRoundRect(bx, by, fw < bh ? bh : fw, bh, r, rgb(barColor));
 
     // Reset countdown.
-    lcd.setFont(&fonts::FreeSans9pt7b);
-    lcd.setTextDatum(textdatum_t::top_left);
-    lcd.setTextColor(rgb(T_MUTED));
-    lcd.drawString("Resets in " + reset, bx, yc + 60);
+    canvas.setFont(&fonts::FreeSans9pt7b);
+    canvas.setTextDatum(textdatum_t::top_left);
+    canvas.setTextColor(rgb(T_MUTED));
+    canvas.drawString("Resets in " + reset, bx, yc + 60);
 }
 }  // namespace
 
 void drawDashboard(const Dashboard& d) {
-    lcd.fillScreen(rgb(T_BG));
+    canvas.fillScreen(rgb(T_BG));
 
     // ---- Top bar ----------------------------------------------------------
     drawMascot(14, 8, 2);                       // 22x16
-    lcd.setFont(&fonts::FreeSansBold12pt7b);
-    lcd.setTextDatum(textdatum_t::top_center);
-    lcd.setTextColor(rgb(T_TITLE));
-    lcd.drawString("Usage", lcd.width() / 2, 8);
+    canvas.setFont(&fonts::FreeSansBold12pt7b);
+    canvas.setTextDatum(textdatum_t::top_center);
+    canvas.setTextColor(rgb(T_TITLE));
+    canvas.drawString("Usage", canvas.width() / 2, 8);
 
-    drawBattery(lcd.width() - 42, 9, d.battery, d.charging);
-    drawWifiBars(lcd.width() - 74, 9, d.rssi);
+    drawBattery(canvas.width() - 42, 9, d.battery, d.charging);
+    drawWifiBars(canvas.width() - 74, 9, d.rssi);
 
     // ---- Cards ------------------------------------------------------------
     drawMetricCard(36,  "Current", d.current, d.currentReset, T_CUR);
     drawMetricCard(120, "Weekly",  d.weekly,  d.weeklyReset,  T_WK);
 
     // ---- Status line ------------------------------------------------------
-    lcd.setFont(&fonts::FreeSansBold9pt7b);
-    lcd.setTextDatum(textdatum_t::top_center);
-    lcd.setTextColor(rgb(T_CORAL));
-    lcd.drawString("* " + d.status, lcd.width() / 2, 202);
+    canvas.setFont(&fonts::FreeSansBold9pt7b);
+    canvas.setTextDatum(textdatum_t::top_center);
+    canvas.setTextColor(rgb(T_CORAL));
+    canvas.drawString("* " + d.status, canvas.width() / 2, 202);
+    present();
+}
+
+namespace {
+// Keypad layout (shared by drawKeypad + keypadHit). 3 columns x 4 rows below a
+// header band; the bottom row is Clear / 0 / Backspace.
+constexpr int KP_TOP  = 46;
+constexpr int KP_COLS = 3;
+constexpr int KP_ROWS = 4;
+const char KP_GRID[KP_ROWS][KP_COLS] = {
+    {'1', '2', '3'},
+    {'4', '5', '6'},
+    {'7', '8', '9'},
+    {'C', '0', '<'},
+};
+}  // namespace
+
+char keypadHit(int x, int y) {
+    if (y < KP_TOP) return 0;
+    int cw = lcd.width() / KP_COLS;
+    int chh = (lcd.height() - KP_TOP) / KP_ROWS;
+    int col = x / cw, row = (y - KP_TOP) / chh;
+    if (col < 0) col = 0; if (col >= KP_COLS) col = KP_COLS - 1;
+    if (row < 0) row = 0; if (row >= KP_ROWS) row = KP_ROWS - 1;
+    return KP_GRID[row][col];
+}
+
+void drawKeypad(int enteredLen, const String& note) {
+    canvas.fillScreen(rgb(T_BG));
+
+    // Header: title + PIN dots + optional note.
+    canvas.setFont(&fonts::FreeSansBold12pt7b);
+    canvas.setTextDatum(textdatum_t::top_left);
+    canvas.setTextColor(rgb(T_TITLE));
+    canvas.drawString("Enter PIN", 14, 10);
+
+    for (int i = 0; i < 4; i++) {
+        int cx = 188 + i * 26, cy = 22;
+        if (i < enteredLen) canvas.fillCircle(cx, cy, 7, rgb(T_CORAL));
+        else                canvas.drawCircle(cx, cy, 7, rgb(T_TRACK));
+    }
+    if (note.length()) {
+        canvas.setFont(&fonts::FreeSans9pt7b);
+        canvas.setTextDatum(textdatum_t::top_right);
+        canvas.setTextColor(rgb(T_CORAL));
+        canvas.drawString(note, canvas.width() - 12, 14);
+    }
+
+    // Keys.
+    int cw = canvas.width() / KP_COLS;
+    int chh = (canvas.height() - KP_TOP) / KP_ROWS;
+    for (int row = 0; row < KP_ROWS; row++) {
+        for (int col = 0; col < KP_COLS; col++) {
+            int kx = col * cw, ky = KP_TOP + row * chh;
+            canvas.fillRoundRect(kx + 5, ky + 4, cw - 10, chh - 8, 8, rgb(T_CARD));
+            char k = KP_GRID[row][col];
+            const char* label = (k == 'C') ? "CLR" : (k == '<') ? "DEL" : nullptr;
+            char one[2] = {k, 0};
+            canvas.setTextDatum(textdatum_t::middle_center);
+            if (label) {
+                canvas.setFont(&fonts::FreeSansBold9pt7b);
+                canvas.setTextColor(rgb(T_CORAL));
+                canvas.drawString(label, kx + cw / 2, ky + chh / 2);
+            } else {
+                canvas.setFont(&fonts::FreeSansBold18pt7b);
+                canvas.setTextColor(rgb(T_TITLE));
+                canvas.drawString(one, kx + cw / 2, ky + chh / 2);
+            }
+        }
+    }
+    present();
 }
 
 void drawMessage(const String& title, const String& line) {
     drawHeader(title.c_str());
-    lcd.setFont(&fonts::FreeSans9pt7b);
-    lcd.setTextDatum(textdatum_t::top_left);
-    lcd.setTextColor(rgb(COL_LABEL));
-    lcd.drawString(line, 16, 80);
+    canvas.setFont(&fonts::FreeSans9pt7b);
+    canvas.setTextDatum(textdatum_t::top_left);
+    canvas.setTextColor(rgb(COL_LABEL));
+    canvas.drawString(line, 16, 80);
+    present();
 }
 
 void drawApiError(int httpCode, const String& note) {
     drawHeader("API error");
 
-    lcd.setFont(&fonts::FreeSans9pt7b);
-    lcd.setTextColor(rgb(COL_TITLE));
-    lcd.drawString("HTTP " + String(httpCode), 16, 70);
+    canvas.setFont(&fonts::FreeSans9pt7b);
+    canvas.setTextColor(rgb(COL_TITLE));
+    canvas.drawString("HTTP " + String(httpCode), 16, 70);
 
-    lcd.setTextColor(rgb(COL_SUB));
-    lcd.drawString(note, 16, 104);
+    canvas.setTextColor(rgb(COL_SUB));
+    canvas.drawString(note, 16, 104);
 
-    lcd.setTextDatum(textdatum_t::bottom_left);
-    lcd.setFont(&fonts::Font0);
-    lcd.setTextColor(rgb(COL_FOOTER));
-    lcd.drawString("Stage 3 - poll failed", 16, lcd.height() - 10);
+    canvas.setTextDatum(textdatum_t::bottom_left);
+    canvas.setFont(&fonts::Font0);
+    canvas.setTextColor(rgb(COL_FOOTER));
+    canvas.drawString("Stage 3 - poll failed", 16, canvas.height() - 10);
+    present();
 }
 
 }  // namespace display

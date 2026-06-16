@@ -13,6 +13,7 @@
 #include "board_pins.h"
 #include "config.h"
 #include "display/DisplayHAL.h"
+#include "input/Touch.h"
 #include "net/Api.h"
 #include "net/Net.h"
 #include "net/Portal.h"
@@ -25,6 +26,12 @@ State    gState;
 String   gSsid;          // remembered for the status screen
 String   gToken;         // decrypted OAuth token, held in RAM while running
 uint32_t gLastPoll = 0;  // millis() of the last API poll
+
+String   gPin;           // PIN digits typed on the touch keypad
+bool     gTouchOn = false;
+bool     gWasTouched = false;
+
+void enterRunning();     // forward decl (tryPin -> enterRunning)
 
 // Format a reset timestamp (unix epoch) as a short countdown from `now`.
 String fmtCountdown(long resetEpoch, time_t now) {
@@ -103,17 +110,59 @@ void enterSetup() {
 
 void enterUnlock() {
     gState = State::Unlock;
-    portal::beginUnlock();
+    gPin = "";
+    gWasTouched = false;
+    portal::beginUnlock();                  // web unlock stays as a fallback
+    gTouchOn = touch::begin();
     String url = "http://" + net::localIP().toString();
-    display::drawUnlock(url, credentials::failsRemaining());
-    Serial.printf("[unlock] connected; unlock page at %s\n", url.c_str());
+    if (gTouchOn) display::drawKeypad(0, "");
+    else          display::drawUnlock(url, credentials::failsRemaining());
+    Serial.printf("[unlock] touch=%d; web unlock at %s\n", gTouchOn, url.c_str());
+}
+
+// Try the entered PIN. On success enter Running; otherwise refresh the keypad.
+void tryPin() {
+    String tok;
+    credentials::UnlockResult r = credentials::unlock(gPin, tok);
+    gPin = "";
+    if (r == credentials::UnlockResult::Ok) {
+        gToken = tok;
+        enterRunning();
+    } else if (r == credentials::UnlockResult::LockedOut) {
+        display::drawMessage("Locked out", "Credentials wiped - rebooting");
+        delay(1500);
+        ESP.restart();
+    } else {
+        display::drawKeypad(0, String(credentials::failsRemaining()) + " left");
+    }
+}
+
+// Edge-triggered keypad handling (one key per finger press).
+void handleKeypad() {
+    int x, y;
+    bool down = touch::read(x, y);
+    if (down && !gWasTouched) {
+        char k = display::keypadHit(x, y);
+        if (k >= '0' && k <= '9') {
+            if (gPin.length() < CUM_PIN_LEN) gPin += k;
+        } else if (k == 'C') {
+            gPin = "";
+        } else if (k == '<') {
+            if (gPin.length()) gPin.remove(gPin.length() - 1);
+        }
+        if (k) {
+            display::drawKeypad(gPin.length(), "");
+            if (gPin.length() == CUM_PIN_LEN) tryPin();
+        }
+    }
+    gWasTouched = down;
 }
 
 void enterRunning() {
     gState = State::Running;
     portal::stop();
     configTime(0, 0, CUM_NTP_SERVER);   // UTC epoch for reset countdowns
-    display::drawStatus(gSsid, net::localIP().toString(), net::rssi());
+    display::drawMessage("Usage", "Divining your usage...");  // shown during 1st poll
     Serial.println("[run] unlocked; polling Anthropic API");
     pollAndRender();                    // first poll immediately
     gLastPoll = millis();
@@ -166,22 +215,16 @@ void loop() {
 
         case State::Unlock: {
             portal::Event e = portal::handle();
-            if (e == portal::Event::Unlocked) {
+            if (e == portal::Event::Unlocked) {     // web fallback succeeded
                 gToken = portal::token();
                 enterRunning();
             } else if (e == portal::Event::Provisioned) {
-                // Lockout wiped creds; reboot back into setup.
-                delay(300);
+                delay(300);                         // lockout wiped creds
                 ESP.restart();
-            } else {
-                // Keep the attempts-remaining figure fresh after a wrong PIN.
-                static uint8_t lastFails = 255;
-                uint8_t f = credentials::failsRemaining();
-                if (f != lastFails) {
-                    lastFails = f;
-                    display::drawUnlock("http://" + net::localIP().toString(), f);
-                }
+            } else if (gTouchOn) {
+                handleKeypad();
             }
+            delay(20);
             break;
         }
 

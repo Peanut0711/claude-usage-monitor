@@ -61,4 +61,12 @@ void drawApiError(int httpCode, const String& note);
 // Generic title + one-line message (boot hints, etc.).
 void drawMessage(const String& title, const String& line);
 
+// --- Touch PIN keypad (Stage 4) ---------------------------------------------
+// Draw the on-screen numeric keypad. `enteredLen` fills that many PIN dots;
+// `note` is an optional status line (e.g. "Wrong PIN - 9 left").
+void drawKeypad(int enteredLen, const String& note);
+
+// Map a touch point to a key: '0'..'9', 'C' (clear), '<' (backspace), or 0.
+char keypadHit(int x, int y);
+
 }  // namespace display

@@ -113,11 +113,15 @@ Anthropic API 폴링 + rate-limit 헤더 파싱 + 대시보드까지 구현·검
 - 구현: `DisplayHAL::drawDashboard(const Dashboard&)`, 헬퍼 drawMascot/drawWifiBars/
   drawBattery/drawPill/drawMetricCard. 팔레트 `T_*` 상수.
 
-### Stage 4 남은 것 (예고된 순서)
-1. **터치 PIN 키패드** (다음 작업): CST226SE 터치 브링업 → 화면 숫자패드로 PIN 입력 →
-   매부팅 웹 언락 제거. (LovyanGFX `Touch_CSTxxx` 드라이버 활용.)
-2. 즉시 새로고침 버튼(IO12/IO16), 화면 페이지 전환.
-3. **SY6970 PMU 브링업**(I²C 0x6A) → 실제 배터리 잔량/충전상태.
+### Stage 4 진행
+1. ✅ **터치 PIN 키패드** — CST226SE 브링업(SensorLib `TouchDrvCSTXXX`, I²C 0x5A,
+   RST=13, 폴링) → 온스크린 숫자패드로 PIN 입력. 웹 언락은 폴백으로 유지.
+   터치 좌표 매핑: `src/input/Touch.cpp`의 `TOUCH_SWAP_XY/FLIP_X/FLIP_Y` (현재
+   SWAP=1, FLIP_Y=1로 동작 확인). lib_deps에 `lewisxhe/SensorLib@^0.2.4`.
+2. ✅ **더블버퍼링** — 모든 드로잉을 PSRAM `LGFX_Sprite canvas`에 그린 뒤 `pushSprite`
+   한 번에 전송 → 티어링/깜빡임 제거. (`DisplayHAL.cpp`)
+3. 🔜 즉시 새로고침 버튼(IO12/IO16), 화면 페이지 전환.
+4. 🔜 **SY6970 PMU 브링업**(I²C 0x6A) → 실제 배터리 잔량/충전상태.
 
 ## ⏭️ 이후 단계
 
