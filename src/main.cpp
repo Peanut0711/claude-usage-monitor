@@ -98,6 +98,24 @@ bool io12Pressed() {
     return edge;
 }
 
+// True on a double-tap (two touch-downs within 400ms). Used to wake the screen.
+// Also drives the Home-button event as a side effect (caller should discard it
+// while asleep).
+bool doubleTapDetected() {
+    int x, y;
+    bool down = touch::read(x, y);
+    static bool     was = false;
+    static uint32_t lastTap = 0;
+    bool dbl = false;
+    if (down && !was) {
+        uint32_t now = millis();
+        if (now - lastTap < 400) { dbl = true; lastTap = 0; }
+        else                       lastTap = now;
+    }
+    was = down;
+    return dbl;
+}
+
 bool factoryResetRequested() {
     pinMode(TDS3_PIN_BTN_IO16, INPUT_PULLUP);
     display::drawMessage("Starting", "Hold IO16 to reset & re-setup");
@@ -351,9 +369,11 @@ void loop() {
                 if (asleep) { gManualOff = false; noteInput(); display::drawKeypad(gPin.length(), ""); }
                 else        { gManualOff = true; }
             } else if (gTouchOn) {
-                if (asleep) {                        // first touch only wakes
-                    int x, y;
-                    if (touch::read(x, y)) { noteInput(); display::drawKeypad(gPin.length(), ""); }
+                if (asleep) {                        // wake only on double-tap
+                    if (doubleTapDetected()) {
+                        gManualOff = false; noteInput();
+                        display::drawKeypad(gPin.length(), "");
+                    }
                 } else {
                     handleKeypad();                  // type (notes input)
                 }
@@ -373,17 +393,23 @@ void loop() {
                 break;
             }
 
+            if (asleep) {                            // wake only on double-tap
+                if (doubleTapDetected()) {
+                    gManualOff = false;
+                    noteInput();
+                    renderCurrentView();
+                }
+                touch::homePressed();                // discard while asleep
+                io12Pressed();
+                delay(30);
+                break;
+            }
+
             int tx, ty;
             bool touching = touch::read(tx, ty);     // also drives Home event
             bool homeNow  = touch::homePressed();
             bool io12     = io12Pressed();
             if (touching || homeNow || io12) noteInput();
-
-            if (asleep) {                            // first input only wakes
-                if (touching || homeNow || io12) renderCurrentView();
-                delay(30);
-                break;
-            }
 
             // --- awake ---
             // Home -> manual refresh. One per press; re-arm after release >300ms.
