@@ -102,11 +102,28 @@ Anthropic API 폴링 + rate-limit 헤더 파싱 + 대시보드까지 구현·검
 - 수정한 버그: `sealAndStore` 버퍼가 WiFi 크기(97B) 기준이라 긴 토큰 봉인 실패 →
   `CUM_TOKEN_MAX_LEN`(1024) 기준으로 확대.
 
+## ✅ Stage 4 (진행 중) — 테마 대시보드 (실기 확인)
+
+레퍼런스 디자인대로 재미요소 추가, 실기 확인 완료:
+- 상단: 코랄 **픽셀아트 마스코트**(`MASCOT[8]` 11×8 비트맵) + "Usage" + **WiFi 신호막대**
+  (RSSI 실데이터) + **배터리 아이콘**(충전 `+`, 수치는 PMU 전까지 플레이스홀더 100%).
+- 카드 2개: 큰 % + 보라 알약 배지 + **색상 다른 바**(Current=주황 `T_CUR`, Weekly=라임 `T_WK`)
+  + "Resets in …" 카운트다운.
+- 하단: 폴링마다 바뀌는 장난기 문구(`kStatus[]`: Divining/Counting tokens/…).
+- 구현: `DisplayHAL::drawDashboard(const Dashboard&)`, 헬퍼 drawMascot/drawWifiBars/
+  drawBattery/drawPill/drawMetricCard. 팔레트 `T_*` 상수.
+
+### Stage 4 남은 것 (예고된 순서)
+1. **터치 PIN 키패드** (다음 작업): CST226SE 터치 브링업 → 화면 숫자패드로 PIN 입력 →
+   매부팅 웹 언락 제거. (LovyanGFX `Touch_CSTxxx` 드라이버 활용.)
+2. 즉시 새로고침 버튼(IO12/IO16), 화면 페이지 전환.
+3. **SY6970 PMU 브링업**(I²C 0x6A) → 실제 배터리 잔량/충전상태.
+
 ## ⏭️ 이후 단계
 
-- **Stage 4**: 풀 UI 다듬기 — WiFi 신호 아이콘, 배터리(SY6970 PMU, I²C), 레이아웃 정리.
 - **Stage 5(선택)**: LVGL 도입 (HAL 레이어 이미 분리 → `display::gfx()`로 flush 콜백 연결).
 - **하드닝(별도)**: TLS CA 핀닝, ESP32 flash 암호화(eFuse)로 at-rest 강화.
+- **커스텀 폰트(선택)**: 둥근 폰트(Baloo류)를 VLW로 임베드하면 레퍼런스에 더 근접.
 
 ## 📌 검증된 하드웨어 사실 (재조사 불필요 — 공식 레포 출처)
 

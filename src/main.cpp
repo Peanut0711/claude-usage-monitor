@@ -63,12 +63,27 @@ bool factoryResetRequested() {
     return false;
 }
 
+const char* const kStatus[] = {
+    "Divining...", "Consulting the oracle", "Counting tokens",
+    "Reading the runes", "Vibing", "Crunching numbers",
+};
+uint8_t gStatusIdx = 0;
+
 void pollAndRender() {
     api::Usage u = api::poll(gToken);
     if (u.ok) {
         time_t now = time(nullptr);
-        display::drawDashboard(u.util5h, fmtCountdown(u.reset5h, now),
-                               u.util7d, fmtCountdown(u.reset7d, now));
+        display::Dashboard d;
+        d.current      = u.util5h;
+        d.currentReset = fmtCountdown(u.reset5h, now);
+        d.weekly       = u.util7d;
+        d.weeklyReset  = fmtCountdown(u.reset7d, now);
+        d.rssi         = net::rssi();
+        d.battery      = 100;     // placeholder until SY6970 PMU bring-up
+        d.charging     = true;
+        d.status       = kStatus[gStatusIdx % (sizeof(kStatus) / sizeof(kStatus[0]))];
+        gStatusIdx++;
+        display::drawDashboard(d);
     } else {
         const char* note = u.httpCode == 401 ? "Auth rejected - check token"
                          : u.httpCode <= 0   ? "Network / TLS error"

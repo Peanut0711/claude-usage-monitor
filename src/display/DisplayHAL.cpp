@@ -149,46 +149,125 @@ void drawStatus(const String& ssid, const String& ip, int rssi) {
 }
 
 namespace {
-// One labeled utilization bar with a percentage and a reset countdown.
-void drawBar(const char* label, float pct, const String& reset, int y) {
-    if (pct < 0) pct = 0;
-    if (pct > 100) pct = 100;
+// ---- Stage 4 themed dashboard palette -------------------------------------
+constexpr uint32_t T_BG     = 0x0D0D12;  // near-black
+constexpr uint32_t T_CARD   = 0x1B1B24;  // card background
+constexpr uint32_t T_TITLE  = 0xF2F2F5;  // bright text
+constexpr uint32_t T_MUTED  = 0x9B90B0;  // muted lavender ("resets in")
+constexpr uint32_t T_TRACK  = 0x332E44;  // bar track (purple)
+constexpr uint32_t T_CORAL  = 0xE8654F;  // mascot + status
+constexpr uint32_t T_CUR    = 0xED7B3A;  // current bar (orange)
+constexpr uint32_t T_WK     = 0xC2D74A;  // weekly bar (lime)
+constexpr uint32_t T_PILLBG = 0x463A5E;  // pill background
+constexpr uint32_t T_PILLTX = 0xE9E2F5;  // pill text
+constexpr uint32_t T_GREEN  = 0x7BC86B;  // battery ok
 
-    const int bx = 16, bw = lcd.width() - 32, bh = 30, r = 8;
+// 11x8 pixel-art mascot (Space-Invader-ish), MSB = leftmost column.
+const uint16_t MASCOT[8] = {
+    0x104, 0x088, 0x1FC, 0x376, 0x7FF, 0x5FD, 0x505, 0x0D8,
+};
 
-    // Label (left) + countdown (right) above the bar.
-    lcd.setFont(&fonts::FreeSans9pt7b);
-    lcd.setTextDatum(textdatum_t::top_left);
-    lcd.setTextColor(rgb(COL_LABEL));
-    lcd.drawString(label, bx, y);
-    lcd.setTextDatum(textdatum_t::top_right);
-    lcd.setTextColor(rgb(COL_SUB));
-    lcd.drawString("resets " + reset, bx + bw, y);
+void drawMascot(int x, int y, int s) {
+    for (int r = 0; r < 8; r++)
+        for (int c = 0; c < 11; c++)
+            if ((MASCOT[r] >> (10 - c)) & 1)
+                lcd.fillRect(x + c * s, y + r * s, s, s, rgb(T_CORAL));
+}
 
-    const int by = y + 24;
-    lcd.fillRoundRect(bx, by, bw, bh, r, rgb(COL_TRACK));
-    lcd.fillRoundRect(bx, by, (int)(bw * pct / 100.0f), bh, r, rgb(COL_ACCENT));
-    lcd.drawRoundRect(bx, by, bw, bh, r, rgb(COL_BORDER));
+void drawWifiBars(int x, int y, int rssi) {
+    int bars = (rssi == 0)     ? 0
+             : (rssi >= -55)   ? 4
+             : (rssi >= -65)   ? 3
+             : (rssi >= -75)   ? 2
+             : (rssi >= -85)   ? 1
+                               : 0;
+    for (int i = 0; i < 4; i++) {
+        int h = 4 + i * 3;
+        lcd.fillRect(x + i * 6, y + 13 - h, 4, h, rgb(i < bars ? T_TITLE : T_TRACK));
+    }
+}
 
+void drawBattery(int x, int y, int pct, bool charging) {
+    const int w = 26, h = 13;
+    if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+    lcd.drawRoundRect(x, y, w, h, 2, rgb(T_TITLE));
+    lcd.fillRect(x + w, y + 4, 2, h - 8, rgb(T_TITLE));   // nub
+    uint32_t fill = (pct <= 15 && !charging) ? T_CORAL : T_GREEN;
+    int fw = (w - 4) * pct / 100;
+    if (fw > 0) lcd.fillRect(x + 2, y + 2, fw, h - 4, rgb(fill));
+    if (charging) {                                       // little bolt
+        lcd.setFont(&fonts::Font0);
+        lcd.setTextDatum(textdatum_t::middle_center);
+        lcd.setTextColor(rgb(T_BG));
+        lcd.drawString("+", x + w / 2, y + h / 2);
+    }
+}
+
+// Rounded "pill" badge, right-aligned to rightX. Returns its left edge.
+int drawPill(const char* text, int rightX, int y) {
+    lcd.setFont(&fonts::FreeSansBold9pt7b);
+    int tw = lcd.textWidth(text);
+    int pw = tw + 22, ph = 24;
+    int px = rightX - pw;
+    lcd.fillRoundRect(px, y, pw, ph, ph / 2, rgb(T_PILLBG));
+    lcd.setTextDatum(textdatum_t::middle_center);
+    lcd.setTextColor(rgb(T_PILLTX));
+    lcd.drawString(text, px + pw / 2, y + ph / 2 + 1);
+    return px;
+}
+
+void drawMetricCard(int yc, const char* label, float pct, const String& reset,
+                    uint32_t barColor) {
+    if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+    const int cx = 12, cw = lcd.width() - 24, ch = 80;
+    lcd.fillRoundRect(cx, yc, cw, ch, 10, rgb(T_CARD));
+
+    // Big percentage.
     char buf[8];
     snprintf(buf, sizeof(buf), "%d%%", (int)(pct + 0.5f));
-    lcd.setTextDatum(textdatum_t::middle_center);
-    lcd.setTextColor(TFT_WHITE);
-    lcd.setFont(&fonts::FreeSansBold9pt7b);
-    lcd.drawString(buf, bx + bw / 2, by + bh / 2);
+    lcd.setFont(&fonts::FreeSansBold18pt7b);
+    lcd.setTextDatum(textdatum_t::top_left);
+    lcd.setTextColor(rgb(T_TITLE));
+    lcd.drawString(buf, cx + 18, yc + 8);
+
+    drawPill(label, cx + cw - 16, yc + 10);
+
+    // Bar.
+    const int bx = cx + 18, bw = cw - 36, by = yc + 44, bh = 14, r = 7;
+    lcd.fillRoundRect(bx, by, bw, bh, r, rgb(T_TRACK));
+    int fw = (int)(bw * pct / 100.0f);
+    if (fw > 0) lcd.fillRoundRect(bx, by, fw < bh ? bh : fw, bh, r, rgb(barColor));
+
+    // Reset countdown.
+    lcd.setFont(&fonts::FreeSans9pt7b);
+    lcd.setTextDatum(textdatum_t::top_left);
+    lcd.setTextColor(rgb(T_MUTED));
+    lcd.drawString("Resets in " + reset, bx, yc + 60);
 }
 }  // namespace
 
-void drawDashboard(float pct5h, const String& reset5h,
-                   float pct7d, const String& reset7d) {
-    drawHeader("Claude Usage Monitor");
-    drawBar("Current (5h)", pct5h, reset5h, 58);
-    drawBar("Weekly (7d)",  pct7d, reset7d, 130);
+void drawDashboard(const Dashboard& d) {
+    lcd.fillScreen(rgb(T_BG));
 
-    lcd.setTextDatum(textdatum_t::bottom_left);
-    lcd.setFont(&fonts::Font0);
-    lcd.setTextColor(rgb(COL_FOOTER));
-    lcd.drawString("Stage 3 - live", 16, lcd.height() - 10);
+    // ---- Top bar ----------------------------------------------------------
+    drawMascot(14, 8, 2);                       // 22x16
+    lcd.setFont(&fonts::FreeSansBold12pt7b);
+    lcd.setTextDatum(textdatum_t::top_center);
+    lcd.setTextColor(rgb(T_TITLE));
+    lcd.drawString("Usage", lcd.width() / 2, 8);
+
+    drawBattery(lcd.width() - 42, 9, d.battery, d.charging);
+    drawWifiBars(lcd.width() - 74, 9, d.rssi);
+
+    // ---- Cards ------------------------------------------------------------
+    drawMetricCard(36,  "Current", d.current, d.currentReset, T_CUR);
+    drawMetricCard(120, "Weekly",  d.weekly,  d.weeklyReset,  T_WK);
+
+    // ---- Status line ------------------------------------------------------
+    lcd.setFont(&fonts::FreeSansBold9pt7b);
+    lcd.setTextDatum(textdatum_t::top_center);
+    lcd.setTextColor(rgb(T_CORAL));
+    lcd.drawString("* " + d.status, lcd.width() / 2, 202);
 }
 
 void drawMessage(const String& title, const String& line) {
