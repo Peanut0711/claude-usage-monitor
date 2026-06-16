@@ -8,9 +8,12 @@
 //    unlocked ................... RUNNING (Stage 3 will poll the API here)
 // ============================================================================
 #include <Arduino.h>
+#include <time.h>
 
+#include "board_pins.h"
 #include "config.h"
 #include "display/DisplayHAL.h"
+#include "net/Api.h"
 #include "net/Net.h"
 #include "net/Portal.h"
 #include "secure/CredentialStore.h"
@@ -18,8 +21,61 @@
 namespace {
 
 enum class State { Setup, Unlock, Running };
-State gState;
-String gSsid;   // remembered for the status screen
+State    gState;
+String   gSsid;          // remembered for the status screen
+String   gToken;         // decrypted OAuth token, held in RAM while running
+uint32_t gLastPoll = 0;  // millis() of the last API poll
+
+// Format a reset timestamp (unix epoch) as a short countdown from `now`.
+String fmtCountdown(long resetEpoch, time_t now) {
+    if (resetEpoch <= 0 || now < 1000000000L) return "--";  // no header / no NTP
+    long rem = resetEpoch - (long)now;
+    if (rem < 0) rem = 0;
+    if (rem > 8L * 24 * 3600) return "--";                  // implausible
+    long h = rem / 3600, m = (rem % 3600) / 60;
+    if (h >= 24) return String(h / 24) + "d " + String(h % 24) + "h";
+    return String(h) + "h " + String(m) + "m";
+}
+
+// Brief startup window: holding either side button (IO12 / IO16) wipes stored
+// credentials so the user can re-run setup (e.g. to enter a corrected token).
+// These are the buttons broken out on the enclosure; BOOT is internal-only.
+bool sideButtonDown() {
+    return digitalRead(TDS3_PIN_BTN_IO12) == LOW ||
+           digitalRead(TDS3_PIN_BTN_IO16) == LOW;
+}
+
+bool factoryResetRequested() {
+    pinMode(TDS3_PIN_BTN_IO12, INPUT_PULLUP);
+    pinMode(TDS3_PIN_BTN_IO16, INPUT_PULLUP);
+    display::drawMessage("Starting", "Hold a side button to reset & re-setup");
+    uint32_t start = millis();
+    while (millis() - start < 2500) {
+        if (sideButtonDown()) {
+            uint32_t held = millis();           // require a deliberate hold
+            while (sideButtonDown()) {
+                if (millis() - held > 400) return true;
+                delay(20);
+            }
+        }
+        delay(20);
+    }
+    return false;
+}
+
+void pollAndRender() {
+    api::Usage u = api::poll(gToken);
+    if (u.ok) {
+        time_t now = time(nullptr);
+        display::drawDashboard(u.util5h, fmtCountdown(u.reset5h, now),
+                               u.util7d, fmtCountdown(u.reset7d, now));
+    } else {
+        const char* note = u.httpCode == 401 ? "Auth rejected - check token"
+                         : u.httpCode <= 0   ? "Network / TLS error"
+                                             : "Unexpected response";
+        display::drawApiError(u.httpCode, note);
+    }
+}
 
 void enterSetup() {
     gState = State::Setup;
@@ -41,8 +97,11 @@ void enterUnlock() {
 void enterRunning() {
     gState = State::Running;
     portal::stop();
+    configTime(0, 0, CUM_NTP_SERVER);   // UTC epoch for reset countdowns
     display::drawStatus(gSsid, net::localIP().toString(), net::rssi());
-    Serial.println("[run] unlocked; token held in RAM (Stage 3: poll API)");
+    Serial.println("[run] unlocked; polling Anthropic API");
+    pollAndRender();                    // first poll immediately
+    gLastPoll = millis();
 }
 
 }  // namespace
@@ -59,6 +118,10 @@ void setup() {
     Serial.println("[display] init OK");
 
     credentials::begin();
+    if (factoryResetRequested()) {
+        Serial.println("[reset] BOOT held -> wiping credentials");
+        credentials::wipe();
+    }
     if (!credentials::isProvisioned()) {
         enterSetup();
         return;
@@ -88,6 +151,7 @@ void loop() {
         case State::Unlock: {
             portal::Event e = portal::handle();
             if (e == portal::Event::Unlocked) {
+                gToken = portal::token();
                 enterRunning();
             } else if (e == portal::Event::Provisioned) {
                 // Lockout wiped creds; reboot back into setup.
@@ -106,8 +170,11 @@ void loop() {
         }
 
         case State::Running:
-            // Stage 3 will poll the Anthropic API on CUM_POLL_INTERVAL_MS here.
-            delay(100);
+            if (millis() - gLastPoll >= CUM_POLL_INTERVAL_MS) {
+                pollAndRender();
+                gLastPoll = millis();
+            }
+            delay(50);
             break;
     }
 }

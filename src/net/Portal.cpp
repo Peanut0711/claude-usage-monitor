@@ -84,14 +84,34 @@ void handleSave() {
     String pass  = gServer.arg("pass");
     String token = gServer.arg("token");
     String pin   = gServer.arg("pin");
+    ssid.trim();
     token.trim();
+    pin.trim();
+
+    String err;
+    if (ssid.length() == 0)
+        err = "WiFi name (SSID) is empty.";
+    else if (ssid.length() > CUM_SSID_MAX_LEN)
+        err = "WiFi name too long: " + String(ssid.length()) + " > 32.";
+    else if (pass.length() > CUM_PASS_MAX_LEN)
+        err = "WiFi password too long: " + String(pass.length()) + " > 64.";
+    else if (token.length() == 0)
+        err = "Token is empty.";
+    else if (token.length() > CUM_TOKEN_MAX_LEN)
+        err = "Token too long: " + String(token.length()) + " > 1024.";
+    else if (pin.length() != CUM_PIN_LEN)
+        err = "PIN must be exactly 4 digits (you entered " + String(pin.length()) + ").";
+
+    if (err.length()) {
+        gServer.send(400, "text/plain", err + "\nGo back and fix this field.");
+        return;
+    }
 
     if (credentials::provision(ssid, pass, token, pin)) {
         sendProgmem(SAVED_HTML);
         gPending = portal::Event::Provisioned;   // main reboots
     } else {
-        gServer.send(400, "text/plain",
-                     "Invalid input. Check SSID/token length and a 4-digit PIN.");
+        gServer.send(500, "text/plain", "Storage/crypto error while saving.");
     }
 }
 

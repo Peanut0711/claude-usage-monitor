@@ -35,8 +35,14 @@
 #define CUM_SSID_MAX_LEN     32
 #define CUM_PASS_MAX_LEN     64
 
-// --- API polling (used in Stage 3) ------------------------------------------
-#define CUM_POLL_INTERVAL_MS 60000          // default 60 s
+// --- Anthropic API polling (Stage 3) ----------------------------------------
+#define CUM_POLL_INTERVAL_MS 60000          // default 60 s (ref: 30-300 s)
+#define CUM_API_URL          "https://api.anthropic.com/v1/messages"
+#define CUM_API_VERSION      "2023-06-01"   // anthropic-version
+#define CUM_API_BETA         "oauth-2025-04-20"  // required for OAuth tokens
+#define CUM_API_UA           "claude-code/2.1.5" // OAuth tokens expect this UA
+#define CUM_PROBE_MODEL      "claude-haiku-4-5-20251001"
+#define CUM_NTP_SERVER       "pool.ntp.org"  // for reset countdowns
 
 // --- Crypto -----------------------------------------------------------------
 // App-specific salt mixed into both key derivations. Changing it invalidates

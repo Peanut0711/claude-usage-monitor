@@ -17,7 +17,9 @@ constexpr size_t WIFI_PT_MAX = 1 + CUM_SSID_MAX_LEN + CUM_PASS_MAX_LEN;
 
 bool sealAndStore(const char* key, const uint8_t k[crypto::KEY_LEN],
                   const uint8_t* pt, size_t ptLen) {
-    uint8_t blob[crypto::OVERHEAD + WIFI_PT_MAX];
+    // Sized for the largest plaintext (the token), since this helper seals both
+    // the WiFi blob and the token blob.
+    uint8_t blob[crypto::OVERHEAD + CUM_TOKEN_MAX_LEN];
     if (ptLen + crypto::OVERHEAD > sizeof(blob)) return false;  // guard
     size_t blobLen = 0;
     if (!crypto::seal(k, pt, ptLen, blob, &blobLen)) return false;

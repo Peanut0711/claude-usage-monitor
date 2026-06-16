@@ -148,4 +148,71 @@ void drawStatus(const String& ssid, const String& ip, int rssi) {
     lcd.drawString("Stage 2 - connected & unlocked", 16, lcd.height() - 10);
 }
 
+namespace {
+// One labeled utilization bar with a percentage and a reset countdown.
+void drawBar(const char* label, float pct, const String& reset, int y) {
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+
+    const int bx = 16, bw = lcd.width() - 32, bh = 30, r = 8;
+
+    // Label (left) + countdown (right) above the bar.
+    lcd.setFont(&fonts::FreeSans9pt7b);
+    lcd.setTextDatum(textdatum_t::top_left);
+    lcd.setTextColor(rgb(COL_LABEL));
+    lcd.drawString(label, bx, y);
+    lcd.setTextDatum(textdatum_t::top_right);
+    lcd.setTextColor(rgb(COL_SUB));
+    lcd.drawString("resets " + reset, bx + bw, y);
+
+    const int by = y + 24;
+    lcd.fillRoundRect(bx, by, bw, bh, r, rgb(COL_TRACK));
+    lcd.fillRoundRect(bx, by, (int)(bw * pct / 100.0f), bh, r, rgb(COL_ACCENT));
+    lcd.drawRoundRect(bx, by, bw, bh, r, rgb(COL_BORDER));
+
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%d%%", (int)(pct + 0.5f));
+    lcd.setTextDatum(textdatum_t::middle_center);
+    lcd.setTextColor(TFT_WHITE);
+    lcd.setFont(&fonts::FreeSansBold9pt7b);
+    lcd.drawString(buf, bx + bw / 2, by + bh / 2);
+}
+}  // namespace
+
+void drawDashboard(float pct5h, const String& reset5h,
+                   float pct7d, const String& reset7d) {
+    drawHeader("Claude Usage Monitor");
+    drawBar("Current (5h)", pct5h, reset5h, 58);
+    drawBar("Weekly (7d)",  pct7d, reset7d, 130);
+
+    lcd.setTextDatum(textdatum_t::bottom_left);
+    lcd.setFont(&fonts::Font0);
+    lcd.setTextColor(rgb(COL_FOOTER));
+    lcd.drawString("Stage 3 - live", 16, lcd.height() - 10);
+}
+
+void drawMessage(const String& title, const String& line) {
+    drawHeader(title.c_str());
+    lcd.setFont(&fonts::FreeSans9pt7b);
+    lcd.setTextDatum(textdatum_t::top_left);
+    lcd.setTextColor(rgb(COL_LABEL));
+    lcd.drawString(line, 16, 80);
+}
+
+void drawApiError(int httpCode, const String& note) {
+    drawHeader("API error");
+
+    lcd.setFont(&fonts::FreeSans9pt7b);
+    lcd.setTextColor(rgb(COL_TITLE));
+    lcd.drawString("HTTP " + String(httpCode), 16, 70);
+
+    lcd.setTextColor(rgb(COL_SUB));
+    lcd.drawString(note, 16, 104);
+
+    lcd.setTextDatum(textdatum_t::bottom_left);
+    lcd.setFont(&fonts::Font0);
+    lcd.setTextColor(rgb(COL_FOOTER));
+    lcd.drawString("Stage 3 - poll failed", 16, lcd.height() - 10);
+}
+
 }  // namespace display

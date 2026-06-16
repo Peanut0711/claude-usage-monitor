@@ -39,4 +39,16 @@ void drawUnlock(const String& portalUrl, int failsRemaining);
 // Connected/running status line.
 void drawStatus(const String& ssid, const String& ip, int rssi);
 
+// --- Stage 3 dashboard ------------------------------------------------------
+// Two utilization bars (5h / 7d) with percentages and reset countdowns.
+// Percentages are 0..100; countdown strings are pre-formatted (e.g. "4h 12m").
+void drawDashboard(float pct5h, const String& reset5h,
+                   float pct7d, const String& reset7d);
+
+// Shown when a poll fails so a photo of the screen reveals the HTTP code.
+void drawApiError(int httpCode, const String& note);
+
+// Generic title + one-line message (boot hints, etc.).
+void drawMessage(const String& title, const String& line);
+
 }  // namespace display
