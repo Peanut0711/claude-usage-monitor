@@ -43,10 +43,32 @@ PlatformIO 스캐폴드 + ST7796 디스플레이 최소 구동 코드 작성 완
 > 주의: 이 펌웨어는 USB CDC(`ARDUINO_USB_CDC_ON_BOOT=1`)로 로그를 출력하므로,
 > 리셋 직후 포트가 재열거됨. 시리얼 모니터는 리셋 후 곧바로 열어야 앱 로그가 잡힘.
 
-## ⏭️ 이후 단계 (Stage 2+, 아직 시작 안 함)
+## ✅ Stage 2 — 코드 완료 (실기 부팅 확인, E2E 수동 테스트 대기)
 
-- **Stage 2**: WiFi 캡티브 포털 프로비저닝 + OAuth 토큰 AES 암호화 → NVS 저장
-  (PIN은 저장 안 함). 참고: `oauramos/claude-usage-stick`의 프로비저닝 로직 조정 포팅.
+WiFi 캡티브 포털 프로비저닝 + 토큰 암호화 저장 + PIN 언락까지 구현·빌드·업로드 완료.
+부팅 시 셋업 모드(AP `ClaudeMon-XXXX` + 포털 `192.168.4.1`)로 정상 진입 확인.
+
+설계 확정 사항:
+- **자격증명**: OAuth 토큰 (`claude setup-token`으로 발급, 포털 폼에 붙여넣기).
+- **PIN 입력(부팅 시)**: 웹 언락 페이지 방식. WiFi 연결 후 LAN IP로 접속해 PIN 입력.
+- **암호화 모델**(`src/secure/`):
+  - WiFi 자격증명 → **기기 키**(MAC 유도 SHA-256)로 봉인 → 부팅 시 자동 접속.
+  - OAuth 토큰 → **PIN 키**(PBKDF2-HMAC-SHA256 10k) 봉인 → 언락 필요. PIN 비저장.
+  - 틀린 PIN은 AES-GCM 태그 검증 실패. 10회 실패 시 전체 와이프 → 셋업 복귀.
+- **포털 HTML**: PROGMEM 내장 (별도 파일시스템 없음).
+- 추가 lib 없음 (mbedtls·WiFi·DNSServer·WebServer 전부 코어 내장).
+
+파일: `src/config.h`, `src/secure/{Crypto,Storage,CredentialStore}.*`,
+`src/net/{Net,Portal}.*`, `DisplayHAL` 화면 3종, `main.cpp` 부팅 상태머신.
+
+남은 일 (수동 E2E 테스트): 폰으로 AP 접속 → 폼 제출 → 재부팅·WiFi 접속 →
+언락 페이지에서 PIN → connected 화면. 실제 OAuth 토큰 필요.
+
+> 보안 주의(추후 하드닝): flash 암호화(eFuse) 미적용 상태에서는 기기 키가 난독화
+> 수준. WiFi 비번 at-rest 보호를 강화하려면 ESP32 flash encryption 활성화 필요.
+
+## ⏭️ 이후 단계
+
 - **Stage 3**: Anthropic Messages 엔드포인트에 `max_tokens:1` 최소 요청,
   응답 헤더 파싱:
   - `anthropic-ratelimit-unified-5h-utilization` → Current(5h)
