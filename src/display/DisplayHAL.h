@@ -66,9 +66,12 @@ struct Dashboard {
 // pill labels and reset countdowns, and a status line.
 void drawDashboard(const Dashboard& d);
 
-// One frame of the "refreshing" animation (bouncing mascot + dots). Call with
+// One frame of the "refreshing" animation (bouncing logo + dots). Call with
 // an incrementing frame counter while a poll is in flight.
 void drawRefreshAnim(int frame);
+
+// Boot splash: Claude Code logo + wordmark.
+void drawSplash();
 
 // Shown when a poll fails so a photo of the screen reveals the HTTP code.
 void drawApiError(int httpCode, const String& note);

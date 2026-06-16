@@ -8,6 +8,7 @@
 #include "DisplayHAL.h"
 
 #include "claudecode_logo.h"
+#include "claudecode_wordmark.h"
 
 namespace {
 LGFX_TDisplayS3Pro lcd;
@@ -187,13 +188,18 @@ constexpr uint32_t T_PILLBG = 0x463A5E;  // pill background
 constexpr uint32_t T_PILLTX = 0xE9E2F5;  // pill text
 constexpr uint32_t T_GREEN  = 0x7BC86B;  // battery ok
 
-// Official Claude Code logo (24x24, 1-bit), drawn at integer scale `s`.
+// Draw a 1-bit bitmap (row-major, MSB first) at integer scale `s` in `color`.
+void drawBits(const uint8_t* d, int w, int h, int x, int y, int s, uint32_t color) {
+    const int stride = (w + 7) / 8;
+    for (int r = 0; r < h; r++)
+        for (int c = 0; c < w; c++)
+            if (d[r * stride + (c >> 3)] & (0x80 >> (c & 7)))
+                canvas.fillRect(x + c * s, y + r * s, s, s, rgb(color));
+}
+
+// Official Claude Code logo, drawn coral at integer scale `s`.
 void drawLogo(int x, int y, int s) {
-    const int stride = (CC_LOGO_W + 7) / 8;
-    for (int r = 0; r < CC_LOGO_H; r++)
-        for (int c = 0; c < CC_LOGO_W; c++)
-            if (CC_LOGO[r * stride + (c >> 3)] & (0x80 >> (c & 7)))
-                canvas.fillRect(x + c * s, y + r * s, s, s, rgb(T_CORAL));
+    drawBits(CC_LOGO, CC_LOGO_W, CC_LOGO_H, x, y, s, T_CORAL);
 }
 
 void drawWifiBars(int x, int y, int rssi) {
@@ -307,6 +313,15 @@ void drawDetail(const Detail& d) {
     drawRow("7d reset:", d.reset7d, 174);
     drawRow("Uptime:",   d.uptime, 198);
 
+    present();
+}
+
+void drawSplash() {
+    canvas.fillScreen(rgb(T_BG));
+    const int s = 2, lw = CC_LOGO_W * s;            // 60px logo
+    drawLogo(canvas.width() / 2 - lw / 2, 28, s);
+    drawBits(CC_TEXT, CC_TEXT_W, CC_TEXT_H,
+             canvas.width() / 2 - CC_TEXT_W / 2, 104, 1, T_TITLE);
     present();
 }
 

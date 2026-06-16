@@ -249,6 +249,9 @@ void setup() {
     }
     Serial.println("[display] init OK");
 
+    display::drawSplash();              // branded boot splash
+    delay(1300);
+
 #if CUM_TOUCH_TEST
     gTouchOn = touch::begin();
     gState = State::TouchTest;
