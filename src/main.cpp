@@ -13,7 +13,6 @@
 #include "board_pins.h"
 #include "config.h"
 #include "display/DisplayHAL.h"
-#include "input/Light.h"
 #include "input/Touch.h"
 #include "net/Api.h"
 #include "net/Net.h"
@@ -55,32 +54,11 @@ bool sideButtonDown() {
            digitalRead(TDS3_PIN_BTN_IO16) == LOW;
 }
 
-// Adjust backlight to ambient light (throttled, smoothed). No-op without the
-// sensor. The 600 reference scales "bright room" -> full brightness; tune to
-// taste.
-void autoBright() {
-    if (gScreenOff || !light::available()) return;   // paused while off
-    static uint32_t last = 0;
-    static float    ema = -1;
-    static int      curBr = 0;
-    if (millis() - last < 400) return;
-    last = millis();
-    uint16_t r = light::raw();
-    ema = (ema < 0) ? r : (ema * 0.8f + r * 0.2f);
-    int b = 40 + (int)(ema * (255 - 40) / 600.0f);
-    if (b < 40) b = 40;
-    if (b > 255) b = 255;
-    if (curBr == 0 || abs(b - curBr) >= 8) {
-        curBr = b;
-        display::setBrightness(b);
-    }
-}
-
 // Toggle the backlight (power saving). Touch keeps working with it off, so the
-// Home button also wakes the screen. autoBright is paused while off.
+// Home button also wakes the screen.
 void toggleBacklight() {
     gScreenOff = !gScreenOff;
-    display::setBrightness(gScreenOff ? 0 : 200);   // autoBright refines on wake
+    display::setBrightness(gScreenOff ? 0 : 200);   // restore default on wake
 }
 
 // Edge-detected side-button press (for manual refresh in Running state).
@@ -232,7 +210,6 @@ void setup() {
 
     credentials::begin();
     power::begin();
-    light::begin();
     if (factoryResetRequested()) {
         Serial.println("[reset] BOOT held -> wiping credentials");
         credentials::wipe();
@@ -266,7 +243,6 @@ void loop() {
         return;
     }
 #endif
-    autoBright();
     switch (gState) {
         case State::Setup:
             if (portal::handle() == portal::Event::Provisioned) {
@@ -292,10 +268,10 @@ void loop() {
         }
 
         case State::Running: {
-            touch::poll();                          // drive Home-button event
-            // The controller repeats the Home event while held. Toggle once per
-            // press: fire on a fresh press, then re-arm only after the event
-            // has stopped for a while (i.e. the finger was lifted).
+            int tx, ty;
+            bool touching = touch::read(tx, ty);    // also drives Home event
+
+            // Home button: toggle once per press, re-arm after release (>300ms).
             static bool     armed = true;
             static uint32_t lastSeen = 0;
             uint32_t now = millis();
@@ -303,8 +279,17 @@ void loop() {
                 lastSeen = now;
                 if (armed) { toggleBacklight(); armed = false; }
             } else if (now - lastSeen > 300) {
-                armed = true;                       // released -> ready again
+                armed = true;
             }
+
+            // Brightness: drag vertically on either edge strip (top=bright).
+            if (!gScreenOff && touching && (tx < 48 || tx > 432)) {
+                int b = 255 - (ty - 4) * (255 - 25) / (218 - 4);
+                if (b < 25)  b = 25;
+                if (b > 255) b = 255;
+                display::setBrightness(b);
+            }
+
             if (gScreenOff) { delay(30); break; }   // screen off: skip work
             if (sideButtonPressed()) {          // manual refresh
                 Serial.println("[run] manual refresh");
