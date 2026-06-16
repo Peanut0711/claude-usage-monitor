@@ -7,6 +7,7 @@
 // ============================================================================
 #include "DisplayHAL.h"
 
+#include "claudecode_bolt.h"
 #include "claudecode_logo.h"
 #include "claudecode_wordmark.h"
 
@@ -216,22 +217,16 @@ void drawWifiBars(int x, int y, int rssi) {
 }
 
 void drawBattery(int x, int y, int pct, bool charging) {
-    const int w = 26, h = 13;
+    const int w = 30, h = 16;
     if (pct < 0) pct = 0; if (pct > 100) pct = 100;
-    canvas.drawRoundRect(x, y, w, h, 2, rgb(T_TITLE));
-    canvas.fillRect(x + w, y + 4, 2, h - 8, rgb(T_TITLE));   // nub
+    canvas.drawRoundRect(x, y, w, h, 3, rgb(T_TITLE));
+    canvas.fillRect(x + w, y + (h - 6) / 2, 2, 6, rgb(T_TITLE));   // nub
     uint32_t fill = (pct <= 15 && !charging) ? T_CORAL : T_GREEN;
     int fw = (w - 4) * pct / 100;
     if (fw > 0) canvas.fillRect(x + 2, y + 2, fw, h - 4, rgb(fill));
-    if (charging) {                                          // small lightning bolt
-        static const uint8_t bolt[8] = {
-            0x02, 0x06, 0x0E, 0x1E, 0x06, 0x0C, 0x18, 0x10,  // 5 wide x 8 tall
-        };
-        int bx = x + w / 2 - 2, by = y + (h - 8) / 2;
-        for (int r = 0; r < 8; r++)
-            for (int c = 0; c < 5; c++)
-                if (bolt[r] & (0x10 >> c))
-                    canvas.fillRect(bx + c, by + r, 1, 1, rgb(T_BG));
+    if (charging) {                                               // lightning bolt
+        drawBits(CC_BOLT, CC_BOLT_W, CC_BOLT_H,
+                 x + (w - CC_BOLT_W) / 2, y + (h - CC_BOLT_H) / 2, 1, T_BG);
     }
 }
 
