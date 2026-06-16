@@ -7,6 +7,8 @@
 // ============================================================================
 #include "DisplayHAL.h"
 
+#include "claudecode_logo.h"
+
 namespace {
 LGFX_TDisplayS3Pro lcd;
 lgfx::LGFX_Sprite  canvas(&lcd);   // off-screen frame buffer (PSRAM)
@@ -185,15 +187,12 @@ constexpr uint32_t T_PILLBG = 0x463A5E;  // pill background
 constexpr uint32_t T_PILLTX = 0xE9E2F5;  // pill text
 constexpr uint32_t T_GREEN  = 0x7BC86B;  // battery ok
 
-// 11x8 pixel-art mascot (Space-Invader-ish), MSB = leftmost column.
-const uint16_t MASCOT[8] = {
-    0x104, 0x088, 0x1FC, 0x376, 0x7FF, 0x5FD, 0x505, 0x0D8,
-};
-
-void drawMascot(int x, int y, int s) {
-    for (int r = 0; r < 8; r++)
-        for (int c = 0; c < 11; c++)
-            if ((MASCOT[r] >> (10 - c)) & 1)
+// Official Claude Code logo (24x24, 1-bit), drawn at integer scale `s`.
+void drawLogo(int x, int y, int s) {
+    const int stride = (CC_LOGO_W + 7) / 8;
+    for (int r = 0; r < CC_LOGO_H; r++)
+        for (int c = 0; c < CC_LOGO_W; c++)
+            if (CC_LOGO[r * stride + (c >> 3)] & (0x80 >> (c & 7)))
                 canvas.fillRect(x + c * s, y + r * s, s, s, rgb(T_CORAL));
 }
 
@@ -273,7 +272,7 @@ void drawDashboard(const Dashboard& d) {
     canvas.fillScreen(rgb(T_BG));
 
     // ---- Top bar ----------------------------------------------------------
-    drawMascot(14, 8, 2);                       // 22x16
+    drawLogo(12, 4, 1);                         // 24x24 official logo
     canvas.setFont(&fonts::FreeSansBold12pt7b);
     canvas.setTextDatum(textdatum_t::top_center);
     canvas.setTextColor(rgb(T_TITLE));
@@ -314,15 +313,15 @@ void drawDetail(const Detail& d) {
 void drawRefreshAnim(int frame) {
     canvas.fillScreen(rgb(T_BG));
 
-    // Mascot bobs up and down on a short cycle.
+    // Logo bobs up and down on a short cycle.
     static const int kBob[] = {0, 5, 10, 13, 10, 5};
     int oy = kBob[frame % 6];
-    const int s = 4;                       // 44 x 32 mascot
-    int mw = 11 * s;
-    drawMascot(canvas.width() / 2 - mw / 2, 56 + oy, s);
+    const int s = 2;                       // 48 x 48 logo
+    int mw = CC_LOGO_W * s;
+    drawLogo(canvas.width() / 2 - mw / 2, 36 + oy, s);
 
     // Shadow that shrinks as it rises, for a little life.
-    int sw = 30 - oy;
+    int sw = 40 - oy;
     canvas.fillRoundRect(canvas.width() / 2 - sw / 2, 100, sw, 6, 3, rgb(T_TRACK));
 
     // "Refreshing" with cycling dots.
