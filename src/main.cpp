@@ -282,8 +282,10 @@ void loop() {
                 armed = true;
             }
 
-            // Brightness: drag vertically on either edge strip (top=bright).
-            if (!gScreenOff && touching && (tx < 48 || tx > 432)) {
+            // Brightness: drag vertically on the LEFT edge strip (top=bright).
+            // Left only: the right edge is near the Home button and caused
+            // accidental brightness changes.
+            if (!gScreenOff && touching && tx < 48) {
                 int b = 255 - (ty - 4) * (255 - 25) / (218 - 4);
                 if (b < 25)  b = 25;
                 if (b > 255) b = 255;
