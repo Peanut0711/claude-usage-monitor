@@ -146,8 +146,25 @@ api::Usage    gPollResult;
 api::Usage    gLastUsage;            // last result (drives dashboard + detail)
 bool          gPollAnimate = false;
 int           gAnimFrame   = 0;
-bool          gShowDetail  = false;  // IO12 toggles dashboard <-> detail
 bool          gStale       = false;  // last poll failed; showing previous data
+
+// IO12 cycles pages: dashboard -> detail -> history.
+enum { PAGE_DASH = 0, PAGE_DETAIL = 1, PAGE_HISTORY = 2, PAGE_COUNT = 3 };
+int           gPage = PAGE_DASH;
+
+// Utilization history (one sample per successful poll), oldest..newest.
+constexpr int HIST_N = 64;
+float         gH5[HIST_N], gH7[HIST_N];
+int           gHistCount = 0;
+
+void histPush(float a, float b) {
+    if (gHistCount < HIST_N) {
+        gH5[gHistCount] = a; gH7[gHistCount] = b; gHistCount++;
+    } else {
+        for (int i = 1; i < HIST_N; i++) { gH5[i - 1] = gH5[i]; gH7[i - 1] = gH7[i]; }
+        gH5[HIST_N - 1] = a; gH7[HIST_N - 1] = b;
+    }
+}
 
 void pollTaskFn(void*) {
     gPollResult = api::poll(gToken);   // ~1s blocking, off the UI core
@@ -173,7 +190,7 @@ String fmtUptime() {
 // Draw whichever page is active from the last poll result + live sensors.
 void renderCurrentView() {
     time_t now = time(nullptr);
-    if (gShowDetail) {
+    if (gPage == PAGE_DETAIL) {
         display::Detail d;
         d.ssid     = gSsid;
         d.ip       = net::localIP().toString();
@@ -184,7 +201,13 @@ void renderCurrentView() {
         d.reset7d  = fmtCountdown(gLastUsage.reset7d, now);
         d.uptime   = fmtUptime();
         display::drawDetail(d);
-    } else if (gLastUsage.ok) {
+        return;
+    }
+    if (gPage == PAGE_HISTORY) {
+        display::drawHistory(gH5, gH7, gHistCount);
+        return;
+    }
+    if (gLastUsage.ok) {
         display::Dashboard d;
         d.current      = gLastUsage.util5h;
         d.currentReset = fmtCountdown(gLastUsage.reset5h, now);
@@ -271,7 +294,7 @@ void enterRunning() {
     touch::homePressed();               // discard any press from the unlock phase
     portal::stop();
     configTime(0, 0, CUM_NTP_SERVER);   // UTC epoch for reset countdowns
-    gShowDetail = false;
+    gPage = PAGE_DASH;
     gManualOff = false;
     noteInput();
     pinMode(TDS3_PIN_BTN_IO12, INPUT_PULLUP);
@@ -426,7 +449,7 @@ void loop() {
                 armed = true;
             }
 
-            if (io12) { gShowDetail = !gShowDetail; renderCurrentView(); }
+            if (io12) { gPage = (gPage + 1) % PAGE_COUNT; renderCurrentView(); }
 
             // Brightness: drag vertically on the LEFT edge strip (top=bright).
             if (touching && tx < 48) {
@@ -444,6 +467,7 @@ void loop() {
                     gLastUsage = gPollResult;        // fresh good data
                     gStale = false;
                     gStatusIdx++;
+                    histPush(gPollResult.util5h, gPollResult.util7d);
                 } else if (gLastUsage.ok) {
                     gStale = true;                   // keep showing prior data
                 } else {
@@ -462,7 +486,7 @@ void loop() {
             }
 
             // Animate while an animated poll is running (skip on the detail page).
-            if (gPollRunning && gPollAnimate && !gShowDetail) {
+            if (gPollRunning && gPollAnimate && gPage == PAGE_DASH) {
                 display::drawRefreshAnim(gAnimFrame++);
                 delay(70);
             } else {

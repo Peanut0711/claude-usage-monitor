@@ -50,6 +50,10 @@ struct Detail {
 };
 void drawDetail(const Detail& d);
 
+// Usage history mini-graph (two sparklines: 5h orange, 7d lime). Arrays hold
+// `count` samples oldest..newest, each 0..100.
+void drawHistory(const float* h5, const float* h7, int count);
+
 // --- Stage 4 dashboard ------------------------------------------------------
 struct Dashboard {
     float  current      = 0;    // 5h utilization, percent 0..100

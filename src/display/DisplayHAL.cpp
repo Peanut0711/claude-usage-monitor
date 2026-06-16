@@ -317,6 +317,59 @@ void drawDetail(const Detail& d) {
     present();
 }
 
+namespace {
+int plotY(float v, int y0, int h) {
+    if (v < 0) v = 0; if (v > 100) v = 100;
+    return y0 + (int)(h * (100 - v) / 100);
+}
+}  // namespace
+
+void drawHistory(const float* h5, const float* h7, int count) {
+    drawHeader("History");
+
+    // Legend (top-right).
+    canvas.setFont(&fonts::FreeSansBold9pt7b);
+    canvas.setTextDatum(textdatum_t::top_right);
+    canvas.setTextColor(rgb(T_CUR));
+    canvas.drawString("5h", canvas.width() - 64, 18);
+    canvas.setTextColor(rgb(T_WK));
+    canvas.drawString("7d", canvas.width() - 22, 18);
+
+    const int x0 = 32, y0 = 58, w = canvas.width() - 52, h = 138;
+
+    // Gridlines + % labels at 0 / 50 / 100.
+    canvas.setFont(&fonts::Font0);
+    canvas.setTextDatum(textdatum_t::middle_right);
+    for (int p = 0; p <= 100; p += 50) {
+        int gy = y0 + h * (100 - p) / 100;
+        canvas.drawFastHLine(x0, gy, w, rgb(T_TRACK));
+        canvas.setTextColor(rgb(T_MUTED));
+        canvas.drawString(String(p), x0 - 5, gy);
+    }
+
+    if (count < 2) {
+        canvas.setFont(&fonts::FreeSans9pt7b);
+        canvas.setTextDatum(textdatum_t::middle_center);
+        canvas.setTextColor(rgb(T_MUTED));
+        canvas.drawString("collecting data...", canvas.width() / 2, y0 + h / 2);
+        present();
+        return;
+    }
+
+    // Two sparklines (drawn 2px thick by doubling).
+    for (int i = 1; i < count; i++) {
+        int xa = x0 + (long)(i - 1) * w / (count - 1);
+        int xb = x0 + (long)i * w / (count - 1);
+        int a5 = plotY(h5[i - 1], y0, h), b5 = plotY(h5[i], y0, h);
+        int a7 = plotY(h7[i - 1], y0, h), b7 = plotY(h7[i], y0, h);
+        canvas.drawLine(xa, a7, xb, b7, rgb(T_WK));
+        canvas.drawLine(xa, a7 + 1, xb, b7 + 1, rgb(T_WK));
+        canvas.drawLine(xa, a5, xb, b5, rgb(T_CUR));
+        canvas.drawLine(xa, a5 + 1, xb, b5 + 1, rgb(T_CUR));
+    }
+    present();
+}
+
 void drawSplash(int yoff) {
     canvas.fillScreen(rgb(T_BG));
     drawBits(CC_LOGO_L, CC_LOGO_L_W, CC_LOGO_L_H,           // 90px native logo
