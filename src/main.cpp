@@ -52,6 +52,15 @@ bool sideButtonDown() {
            digitalRead(TDS3_PIN_BTN_IO16) == LOW;
 }
 
+// Edge-detected side-button press (for manual refresh in Running state).
+bool sideButtonPressed() {
+    static bool was = false;
+    bool down = sideButtonDown();
+    bool edge = down && !was;
+    was = down;
+    return edge;
+}
+
 bool factoryResetRequested() {
     pinMode(TDS3_PIN_BTN_IO12, INPUT_PULLUP);
     pinMode(TDS3_PIN_BTN_IO16, INPUT_PULLUP);
@@ -229,7 +238,12 @@ void loop() {
         }
 
         case State::Running:
-            if (millis() - gLastPoll >= CUM_POLL_INTERVAL_MS) {
+            if (sideButtonPressed()) {          // manual refresh
+                Serial.println("[run] manual refresh");
+                display::drawMessage("Usage", "Refreshing...");
+                pollAndRender();
+                gLastPoll = millis();
+            } else if (millis() - gLastPoll >= CUM_POLL_INTERVAL_MS) {
                 pollAndRender();
                 gLastPoll = millis();
             }
