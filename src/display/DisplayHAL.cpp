@@ -223,10 +223,15 @@ void drawBattery(int x, int y, int pct, bool charging) {
     uint32_t fill = (pct <= 15 && !charging) ? T_CORAL : T_GREEN;
     int fw = (w - 4) * pct / 100;
     if (fw > 0) canvas.fillRect(x + 2, y + 2, fw, h - 4, rgb(fill));
-    if (charging) {                                          // centered "+"
-        int cx = x + w / 2, cy = y + h / 2;
-        canvas.fillRect(cx - 2, cy, 5, 1, rgb(T_BG));        // horizontal
-        canvas.fillRect(cx, cy - 2, 1, 5, rgb(T_BG));        // vertical
+    if (charging) {                                          // small lightning bolt
+        static const uint8_t bolt[8] = {
+            0x02, 0x06, 0x0E, 0x1E, 0x06, 0x0C, 0x18, 0x10,  // 5 wide x 8 tall
+        };
+        int bx = x + w / 2 - 2, by = y + (h - 8) / 2;
+        for (int r = 0; r < 8; r++)
+            for (int c = 0; c < 5; c++)
+                if (bolt[r] & (0x10 >> c))
+                    canvas.fillRect(bx + c, by + r, 1, 1, rgb(T_BG));
     }
 }
 
@@ -319,8 +324,10 @@ void drawSplash(int yoff) {
     canvas.fillScreen(rgb(T_BG));
     drawBits(CC_LOGO_L, CC_LOGO_L_W, CC_LOGO_L_H,           // 90px native logo
              canvas.width() / 2 - CC_LOGO_L_W / 2, 8 + yoff, 1, T_CORAL);
-    drawBits(CC_TEXT, CC_TEXT_W, CC_TEXT_H,
-             canvas.width() / 2 - CC_TEXT_W / 2, 110 + yoff, 1, T_TITLE);
+    // Wordmark is an anti-aliased RGB565 image (blended over T_BG) for smooth
+    // edges; 1-bit text looked jagged.
+    canvas.pushImage(canvas.width() / 2 - CC_TEXT_W / 2, 110 + yoff,
+                     CC_TEXT_W, CC_TEXT_H, (const lgfx::rgb565_t*)CC_TEXT);
     present();
 }
 
