@@ -37,9 +37,9 @@ uint32_t gLastInput  = 0;     // millis() of last input (touch/button)
 bool     gManualOff  = false; // user forced backlight off via IO16
 uint8_t  gActiveBright = 200; // brightness when awake (left-edge drag sets it)
 int      gCurBright  = -1;    // last applied brightness (cache)
-constexpr uint32_t DIM_MS    = 30000;   // idle -> dim (30 s)
-constexpr uint32_t OFF_MS    = 90000;   // idle -> off (90 s)
-constexpr uint8_t  DIM_LEVEL = 45;
+constexpr uint32_t DIM_MS    = 60000;    // idle -> dim (60 s)
+constexpr uint32_t OFF_MS    = 120000;   // idle -> off (120 s)
+constexpr uint8_t  DIM_LEVEL = 153;      // 60% of 255
 
 void noteInput() { gLastInput = millis(); }
 
