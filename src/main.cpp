@@ -127,14 +127,15 @@ void setup() {
         return;
     }
 
-    // Provisioned: load WiFi (device-key sealed) and connect.
-    String ssid, pass;
-    if (!credentials::loadWifi(ssid, pass) || !net::connectSTA(ssid, pass)) {
+    // Provisioned: load all remembered networks and join the strongest.
+    String ssids[CUM_WIFI_MAX], passwords[CUM_WIFI_MAX];
+    int n = credentials::loadWifiList(ssids, passwords, CUM_WIFI_MAX);
+    if (n == 0 || !net::connectMulti(ssids, passwords, n)) {
         Serial.println("[wifi] connect failed -> setup mode");
         enterSetup();
         return;
     }
-    gSsid = ssid;
+    gSsid = net::ssid();
     enterUnlock();
 }
 

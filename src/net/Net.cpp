@@ -4,6 +4,7 @@
 #include "Net.h"
 
 #include <WiFi.h>
+#include <WiFiMulti.h>
 
 #include "../config.h"
 
@@ -36,21 +37,24 @@ IPAddress startAP() {
     return WiFi.softAPIP();
 }
 
-bool connectSTA(const String& ssid, const String& pass) {
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid.c_str(), pass.c_str());
-    capTxPower();
+bool connectMulti(const String ssids[], const String passwords[], int count) {
+    if (count <= 0) return false;
 
-    uint32_t start = millis();
-    while (WiFi.status() != WL_CONNECTED) {
-        if (millis() - start >= CUM_WIFI_CONNECT_TIMEOUT_MS) return false;
-        delay(CUM_WIFI_RETRY_MS);
+    WiFiMulti wm;
+    for (int i = 0; i < count; i++) {
+        wm.addAP(ssids[i].c_str(), passwords[i].c_str());
     }
-    return true;
+    WiFi.mode(WIFI_STA);
+
+    // WiFiMulti scans and connects to the strongest known network.
+    bool connected = (wm.run(CUM_WIFI_CONNECT_TIMEOUT_MS) == WL_CONNECTED);
+    if (connected) capTxPower();
+    return connected;
 }
 
 bool      isConnected() { return WiFi.status() == WL_CONNECTED; }
 IPAddress localIP()     { return WiFi.localIP(); }
 int       rssi()        { return WiFi.RSSI(); }
+String    ssid()        { return WiFi.SSID(); }
 
 }  // namespace net

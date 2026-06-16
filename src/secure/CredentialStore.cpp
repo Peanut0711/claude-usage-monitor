@@ -28,9 +28,11 @@ bool sealAndStore(const char* key, const uint8_t k[crypto::KEY_LEN],
     return ok;
 }
 
-// Seal the WiFi SSID/pass under the device key. Shared by provision() (full
-// setup) and updateWifi() (WiFi-only change that keeps the stored token).
-bool sealWifi(const String& ssid, const String& pass) {
+// NVS key for the i-th stored WiFi network: "wifi0", "wifi1", ...
+String wifiKey(int i) { return String(CUM_NVS_WIFI_PREFIX) + i; }
+
+// Seal one WiFi SSID/pass (device key) into slot `i`.
+bool sealWifiSlot(int i, const String& ssid, const String& pass) {
     uint8_t devKey[crypto::KEY_LEN];
     if (!crypto::deriveDeviceKey(devKey)) return false;
 
@@ -40,9 +42,38 @@ bool sealWifi(const String& ssid, const String& pass) {
     memcpy(wifiPt + 1 + ssid.length(), pass.c_str(), pass.length());
     size_t wifiLen = 1 + ssid.length() + pass.length();
 
-    bool ok = sealAndStore(CUM_NVS_WIFI_BLOB, devKey, wifiPt, wifiLen);
+    bool ok = sealAndStore(wifiKey(i).c_str(), devKey, wifiPt, wifiLen);
     memset(wifiPt, 0, sizeof(wifiPt));
     memset(devKey, 0, sizeof(devKey));
+    return ok;
+}
+
+// Decrypt one stored WiFi slot. Returns false if missing/corrupt.
+bool loadWifiSlot(int i, String& ssidOut, String& passOut) {
+    uint8_t blob[crypto::OVERHEAD + WIFI_PT_MAX];
+    size_t blobLen = storage::getBlob(wifiKey(i).c_str(), blob, sizeof(blob));
+    if (blobLen == 0) return false;
+
+    uint8_t devKey[crypto::KEY_LEN];
+    if (!crypto::deriveDeviceKey(devKey)) return false;
+
+    uint8_t pt[WIFI_PT_MAX];
+    size_t ptLen = 0;
+    bool ok = crypto::open(devKey, blob, blobLen, pt, &ptLen);
+    memset(devKey, 0, sizeof(devKey));
+
+    if (ok && ptLen >= 1) {
+        uint8_t ssidLen = pt[0];
+        if (1 + ssidLen <= ptLen && ssidLen <= CUM_SSID_MAX_LEN) {
+            ssidOut = String((const char*)(pt + 1), ssidLen);
+            passOut = String((const char*)(pt + 1 + ssidLen), ptLen - 1 - ssidLen);
+        } else {
+            ok = false;
+        }
+    } else {
+        ok = false;
+    }
+    memset(pt, 0, sizeof(pt));
     return ok;
 }
 
@@ -71,12 +102,14 @@ bool provision(const String& ssid, const String& pass,
     bool ok = crypto::derivePinKey(pin, pinKey);
 
     if (ok) {
-        ok = sealWifi(ssid, pass) &&
+        // Fresh setup: WiFi list becomes just this one network.
+        ok = sealWifiSlot(0, ssid, pass) &&
              sealAndStore(CUM_NVS_TOKEN_BLOB, pinKey,
                           (const uint8_t*)token.c_str(), token.length());
     }
 
     if (ok) {
+        storage::setWifiCount(1);
         storage::setPinFails(0);
         storage::setProvisioned(true);
     }
@@ -84,38 +117,42 @@ bool provision(const String& ssid, const String& pass,
     return ok;
 }
 
-bool updateWifi(const String& ssid, const String& pass) {
-    if (!isProvisioned()) return false;                       // nothing to keep
-    if (ssid.length() == 0 || ssid.length() > CUM_SSID_MAX_LEN) return false;
-    if (pass.length() > CUM_PASS_MAX_LEN) return false;
-    return sealWifi(ssid, pass);
+int loadWifiList(String ssids[], String passwords[], int maxN) {
+    int count = storage::wifiCount();
+    if (count > CUM_WIFI_MAX) count = CUM_WIFI_MAX;
+    if (count > maxN) count = maxN;
+    int got = 0;
+    for (int i = 0; i < count; i++) {
+        if (loadWifiSlot(i, ssids[got], passwords[got])) got++;
+    }
+    return got;
 }
 
-bool loadWifi(String& ssidOut, String& passOut) {
-    uint8_t blob[crypto::OVERHEAD + WIFI_PT_MAX];
-    size_t blobLen = storage::getBlob(CUM_NVS_WIFI_BLOB, blob, sizeof(blob));
-    if (blobLen == 0) return false;
+bool addWifi(const String& ssid, const String& pass) {
+    if (!isProvisioned()) return false;                       // keep existing token
+    if (ssid.length() == 0 || ssid.length() > CUM_SSID_MAX_LEN) return false;
+    if (pass.length() > CUM_PASS_MAX_LEN) return false;
 
-    uint8_t devKey[crypto::KEY_LEN];
-    if (!crypto::deriveDeviceKey(devKey)) return false;
+    String ss[CUM_WIFI_MAX], pp[CUM_WIFI_MAX];
+    int n = loadWifiList(ss, pp, CUM_WIFI_MAX);
 
-    uint8_t pt[WIFI_PT_MAX];
-    size_t ptLen = 0;
-    bool ok = crypto::open(devKey, blob, blobLen, pt, &ptLen);
-    memset(devKey, 0, sizeof(devKey));
-
-    if (ok && ptLen >= 1) {
-        uint8_t ssidLen = pt[0];
-        if (1 + ssidLen <= ptLen && ssidLen <= CUM_SSID_MAX_LEN) {
-            ssidOut = String((const char*)(pt + 1), ssidLen);
-            passOut = String((const char*)(pt + 1 + ssidLen), ptLen - 1 - ssidLen);
-        } else {
-            ok = false;
+    // Update in place if this SSID already exists.
+    for (int i = 0; i < n; i++) {
+        if (ss[i] == ssid) {
+            return sealWifiSlot(i, ssid, pass);
         }
-    } else {
-        ok = false;
     }
-    memset(pt, 0, sizeof(pt));
+
+    // Otherwise append; if full, drop the oldest (slot 0) by shifting down.
+    if (n == CUM_WIFI_MAX) {
+        for (int i = 1; i < n; i++) { ss[i - 1] = ss[i]; pp[i - 1] = pp[i]; }
+        n--;
+    }
+    ss[n] = ssid; pp[n] = pass; n++;
+
+    bool ok = true;
+    for (int i = 0; i < n; i++) ok = ok && sealWifiSlot(i, ss[i], pp[i]);
+    if (ok) storage::setWifiCount(n);
     return ok;
 }
 

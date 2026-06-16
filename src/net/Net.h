@@ -16,12 +16,14 @@ String apSsid();
 // Bring up the SoftAP used by the setup captive portal. Returns the AP IP.
 IPAddress startAP();
 
-// Connect as a station. Blocks up to CUM_WIFI_CONNECT_TIMEOUT_MS. Returns
-// true once an IP is obtained.
-bool connectSTA(const String& ssid, const String& pass);
+// Connect to the strongest reachable network among the given list (home /
+// office / ...). Blocks up to CUM_WIFI_CONNECT_TIMEOUT_MS. Returns true once
+// an IP is obtained.
+bool connectMulti(const String ssids[], const String passwords[], int count);
 
 bool      isConnected();
 IPAddress localIP();
 int       rssi();           // dBm, valid when connected
+String    ssid();           // SSID of the connected network
 
 }  // namespace net

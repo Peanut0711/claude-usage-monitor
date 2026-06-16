@@ -24,16 +24,18 @@ void begin();
 bool provision(const String& ssid, const String& pass,
                const String& token, const String& pin);
 
-// Re-seal only the WiFi credentials, keeping the stored token (and PIN). For
-// changing networks (e.g. home <-> office) without re-entering the token.
-// Returns false if not yet provisioned or on a crypto/NVS error.
-bool updateWifi(const String& ssid, const String& pass);
+// Add (or update) a WiFi network, keeping the stored token and PIN. Used for
+// remembering extra networks (e.g. home + office) without re-entering the
+// token. Updates in place if the SSID already exists; evicts the oldest once
+// CUM_WIFI_MAX is reached. Returns false if not provisioned or on error.
+bool addWifi(const String& ssid, const String& pass);
 
 bool isProvisioned();
 
 // --- WiFi (available without the PIN) ---------------------------------------
-// Loads + decrypts the stored WiFi creds. Returns false if missing/corrupt.
-bool loadWifi(String& ssidOut, String& passOut);
+// Decrypt all stored networks into the given arrays (size >= maxN). Returns
+// how many were loaded.
+int loadWifiList(String ssids[], String passwords[], int maxN);
 
 // --- Token unlock -----------------------------------------------------------
 enum class UnlockResult { Ok, WrongPin, LockedOut, Error };

@@ -66,6 +66,16 @@ void setPinFails(uint8_t value) {
     s.prefs.putUChar(CUM_NVS_PIN_FAILS, value);
 }
 
+uint8_t wifiCount() {
+    Scoped s(true);
+    return s.prefs.getUChar(CUM_NVS_WIFI_COUNT, 0);
+}
+
+void setWifiCount(uint8_t value) {
+    Scoped s(false);
+    s.prefs.putUChar(CUM_NVS_WIFI_COUNT, value);
+}
+
 void wipeAll() {
     Scoped s(false);
     s.prefs.clear();

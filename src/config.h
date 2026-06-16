@@ -53,6 +53,10 @@
 // --- NVS layout -------------------------------------------------------------
 #define CUM_NVS_NAMESPACE    "cum"
 #define CUM_NVS_PROVISIONED  "prov"         // uint8 flag
-#define CUM_NVS_WIFI_BLOB    "wifi"         // device-key sealed: ssid+pass
+#define CUM_NVS_WIFI_PREFIX  "wifi"         // device-key sealed blobs: wifi0..N
+#define CUM_NVS_WIFI_COUNT   "wifin"        // uint8 number of stored networks
 #define CUM_NVS_TOKEN_BLOB   "token"        // pin-key sealed: OAuth token
 #define CUM_NVS_PIN_FAILS    "pinfails"     // uint8 consecutive failures
+
+// Max WiFi networks remembered for auto-connect (e.g. home + office).
+#define CUM_WIFI_MAX         3

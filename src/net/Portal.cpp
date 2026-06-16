@@ -43,7 +43,8 @@ small{color:#8a9099}</style></head><body>
 <label>PIN (4 digits)</label>
 <input name="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4">
 <small>The PIN encrypts your token and is never stored.<br>
-Changing WiFi only? Leave token &amp; PIN blank to keep the saved token.</small>
+Adding/changing WiFi? Leave token &amp; PIN blank: your token is kept and the
+network is remembered (up to 3, e.g. home + office).</small>
 <button type="submit">Save &amp; reboot</button></form></body></html>)HTML";
 
 const char SAVED_HTML[] PROGMEM = R"HTML(<!DOCTYPE html><html><head>
@@ -111,7 +112,7 @@ void handleSave() {
         return;
     }
 
-    bool ok = wifiOnly ? credentials::updateWifi(ssid, pass)
+    bool ok = wifiOnly ? credentials::addWifi(ssid, pass)
                        : credentials::provision(ssid, pass, token, pin);
     if (ok) {
         sendProgmem(SAVED_HTML);

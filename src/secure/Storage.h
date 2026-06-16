@@ -32,6 +32,10 @@ size_t blobLen(const char* key);
 uint8_t pinFails();
 void    setPinFails(uint8_t value);
 
+// Number of stored WiFi networks (0..CUM_WIFI_MAX).
+uint8_t wifiCount();
+void    setWifiCount(uint8_t value);
+
 // Erase every key in the namespace (factory reset back to setup mode).
 void wipeAll();
 
