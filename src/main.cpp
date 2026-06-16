@@ -293,7 +293,15 @@ void loop() {
 
         case State::Running:
             touch::poll();                          // drive Home-button event
-            if (touch::homePressed()) toggleBacklight();
+            if (touch::homePressed()) {
+                // Debounce: the controller repeats the event while held, so
+                // ignore further presses for a short window.
+                static uint32_t lastHome = 0;
+                if (millis() - lastHome > 700) {
+                    toggleBacklight();
+                    lastHome = millis();
+                }
+            }
             if (gScreenOff) { delay(30); break; }   // screen off: skip work
             if (sideButtonPressed()) {          // manual refresh
                 Serial.println("[run] manual refresh");
