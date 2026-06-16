@@ -291,16 +291,19 @@ void loop() {
             break;
         }
 
-        case State::Running:
+        case State::Running: {
             touch::poll();                          // drive Home-button event
+            // The controller repeats the Home event while held. Toggle once per
+            // press: fire on a fresh press, then re-arm only after the event
+            // has stopped for a while (i.e. the finger was lifted).
+            static bool     armed = true;
+            static uint32_t lastSeen = 0;
+            uint32_t now = millis();
             if (touch::homePressed()) {
-                // Debounce: the controller repeats the event while held, so
-                // ignore further presses for a short window.
-                static uint32_t lastHome = 0;
-                if (millis() - lastHome > 700) {
-                    toggleBacklight();
-                    lastHome = millis();
-                }
+                lastSeen = now;
+                if (armed) { toggleBacklight(); armed = false; }
+            } else if (now - lastSeen > 300) {
+                armed = true;                       // released -> ready again
             }
             if (gScreenOff) { delay(30); break; }   // screen off: skip work
             if (sideButtonPressed()) {          // manual refresh
@@ -314,5 +317,6 @@ void loop() {
             }
             delay(50);
             break;
+        }
     }
 }
