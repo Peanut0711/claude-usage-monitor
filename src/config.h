@@ -8,10 +8,18 @@
 
 #include <stdint.h>
 
+// Local, git-ignored secrets (AP password). Falls back to a placeholder so the
+// project still builds without it — but change it before trusting setup mode.
+#if __has_include("secrets.h")
+#include "secrets.h"
+#endif
+
 // --- SoftAP / provisioning --------------------------------------------------
 // AP SSID is CUM_AP_PREFIX + last 2 bytes of the MAC, e.g. "ClaudeMon-3F7A".
 #define CUM_AP_PREFIX        "ClaudeMon-"
-#define CUM_AP_PASSWORD      "claude1234"   // shown on screen during setup
+#ifndef CUM_AP_PASSWORD
+#define CUM_AP_PASSWORD      "change-me-strong-pw"  // override in secrets.h
+#endif
 #define CUM_PORTAL_PORT      80
 #define CUM_DNS_PORT         53
 #define CUM_AP_IP            192, 168, 4, 1 // captive-portal landing IP

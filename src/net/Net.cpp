@@ -7,6 +7,14 @@
 
 #include "../config.h"
 
+namespace {
+// Cap WiFi TX power well below the 20 dBm default. The current spike when a
+// client associates (AP) or when the radio transmits (STA) is the usual cause
+// of brownout resets on boards sharing a marginal USB 5V rail with a display.
+// 11 dBm keeps plenty of range for a same-room phone / nearby router.
+void capTxPower() { WiFi.setTxPower(WIFI_POWER_11dBm); }
+}  // namespace
+
 namespace net {
 
 String apSsid() {
@@ -24,12 +32,14 @@ IPAddress startAP() {
     IPAddress mask(255, 255, 255, 0);
     WiFi.softAPConfig(ip, gw, mask);
     WiFi.softAP(apSsid().c_str(), CUM_AP_PASSWORD);
+    capTxPower();
     return WiFi.softAPIP();
 }
 
 bool connectSTA(const String& ssid, const String& pass) {
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid.c_str(), pass.c_str());
+    capTxPower();
 
     uint32_t start = millis();
     while (WiFi.status() != WL_CONNECTED) {
