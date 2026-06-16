@@ -67,6 +67,15 @@ bool io16Pressed() {
     return edge;
 }
 
+// Edge-detected IO12 press (toggles the detail page).
+bool io12Pressed() {
+    static bool was = false;
+    bool down = digitalRead(TDS3_PIN_BTN_IO12) == LOW;
+    bool edge = down && !was;
+    was = down;
+    return edge;
+}
+
 bool factoryResetRequested() {
     pinMode(TDS3_PIN_BTN_IO16, INPUT_PULLUP);
     display::drawMessage("Starting", "Hold IO16 to reset & re-setup");
@@ -90,26 +99,67 @@ const char* const kStatus[] = {
 };
 uint8_t gStatusIdx = 0;
 
-void pollAndRender() {
-    api::Usage u = api::poll(gToken);
-    if (u.ok) {
-        time_t now = time(nullptr);
+// --- Background poll (runs off the UI core so the screen can animate) -------
+volatile bool gPollRunning = false;
+volatile bool gPollDone    = false;
+api::Usage    gPollResult;
+api::Usage    gLastUsage;            // last result (drives dashboard + detail)
+bool          gPollAnimate = false;
+int           gAnimFrame   = 0;
+bool          gShowDetail  = false;  // IO12 toggles dashboard <-> detail
+
+void pollTaskFn(void*) {
+    gPollResult = api::poll(gToken);   // ~1s blocking, off the UI core
+    gPollDone = true;
+    gPollRunning = false;
+    vTaskDelete(nullptr);
+}
+
+void requestPoll(bool animate) {
+    if (gPollRunning || gPollDone) return;   // don't overlap / lose a result
+    gPollAnimate = animate;
+    gAnimFrame = 0;
+    gPollRunning = true;
+    xTaskCreatePinnedToCore(pollTaskFn, "poll", 12288, nullptr, 1, nullptr, 0);
+}
+
+String fmtUptime() {
+    uint32_t s = millis() / 1000, h = s / 3600, m = (s % 3600) / 60;
+    if (h > 0) return String(h) + "h " + String(m) + "m";
+    return String(m) + "m " + String(s % 60) + "s";
+}
+
+// Draw whichever page is active from the last poll result + live sensors.
+void renderCurrentView() {
+    if (gScreenOff) return;
+    time_t now = time(nullptr);
+    if (gShowDetail) {
+        display::Detail d;
+        d.ssid     = gSsid;
+        d.ip       = net::localIP().toString();
+        d.rssi     = net::rssi();
+        d.battery  = power::percent();
+        d.charging = power::charging();
+        d.reset5h  = fmtCountdown(gLastUsage.reset5h, now);
+        d.reset7d  = fmtCountdown(gLastUsage.reset7d, now);
+        d.uptime   = fmtUptime();
+        display::drawDetail(d);
+    } else if (gLastUsage.ok) {
         display::Dashboard d;
-        d.current      = u.util5h;
-        d.currentReset = fmtCountdown(u.reset5h, now);
-        d.weekly       = u.util7d;
-        d.weeklyReset  = fmtCountdown(u.reset7d, now);
+        d.current      = gLastUsage.util5h;
+        d.currentReset = fmtCountdown(gLastUsage.reset5h, now);
+        d.weekly       = gLastUsage.util7d;
+        d.weeklyReset  = fmtCountdown(gLastUsage.reset7d, now);
         d.rssi         = net::rssi();
         d.battery      = power::percent();
         d.charging     = power::charging();
         d.status       = kStatus[gStatusIdx % (sizeof(kStatus) / sizeof(kStatus[0]))];
-        gStatusIdx++;
         display::drawDashboard(d);
     } else {
-        const char* note = u.httpCode == 401 ? "Auth rejected - check token"
-                         : u.httpCode <= 0   ? "Network / TLS error"
-                                             : "Unexpected response";
-        display::drawApiError(u.httpCode, note);
+        const char* note = gLastUsage.httpCode == 401 ? "Auth rejected - check token"
+                         : gLastUsage.httpCode <= 0   ? "Network / TLS error"
+                                                      : "Unexpected response";
+        display::drawApiError(gLastUsage.httpCode, note);
     }
 }
 
@@ -177,9 +227,12 @@ void enterRunning() {
     touch::homePressed();               // discard any press from the unlock phase
     portal::stop();
     configTime(0, 0, CUM_NTP_SERVER);   // UTC epoch for reset countdowns
-    display::drawMessage("Usage", "Divining your usage...");  // shown during 1st poll
+    gShowDetail = false;
+    pinMode(TDS3_PIN_BTN_IO12, INPUT_PULLUP);
+    pinMode(TDS3_PIN_BTN_IO16, INPUT_PULLUP);
     Serial.println("[run] unlocked; polling Anthropic API");
-    pollAndRender();                    // first poll immediately
+    display::drawRefreshAnim(0);        // intro frame; loop animates until result
+    requestPoll(true);                  // first poll, animated
     gLastPoll = millis();
 }
 
@@ -281,7 +334,16 @@ void loop() {
             }
 
             // IO16 -> backlight on/off (also wakes from off).
-            if (io16Pressed()) toggleBacklight();
+            if (io16Pressed()) {
+                toggleBacklight();
+                if (!gScreenOff) renderCurrentView();   // repaint on wake
+            }
+
+            // IO12 -> toggle detail page.
+            if (io12Pressed()) {
+                gShowDetail = !gShowDetail;
+                renderCurrentView();
+            }
 
             // Brightness: drag vertically on the LEFT edge strip (top=bright).
             if (!gScreenOff && touching && tx < 48) {
@@ -292,16 +354,31 @@ void loop() {
             }
 
             if (gScreenOff) { delay(30); break; }   // screen off: skip work
-            if (homeFired) {                        // refresh now
-                Serial.println("[run] manual refresh (home)");
-                display::drawMessage("Usage", "Refreshing...");
-                pollAndRender();
+
+            // Consume a finished poll.
+            if (gPollDone) {
+                gPollDone = false;
+                gLastUsage = gPollResult;
+                gStatusIdx++;
+                renderCurrentView();
+            }
+
+            // Trigger a poll: Home button (animated) or the periodic interval.
+            if (homeFired) {
+                requestPoll(true);
                 gLastPoll = millis();
-            } else if (millis() - gLastPoll >= CUM_POLL_INTERVAL_MS) {
-                pollAndRender();
+            } else if (!gPollRunning && millis() - gLastPoll >= CUM_POLL_INTERVAL_MS) {
+                requestPoll(false);
                 gLastPoll = millis();
             }
-            delay(50);
+
+            // Animate while an animated poll is running (skip on the detail page).
+            if (gPollRunning && gPollAnimate && !gShowDetail) {
+                display::drawRefreshAnim(gAnimFrame++);
+                delay(70);
+            } else {
+                delay(50);
+            }
             break;
         }
     }

@@ -294,6 +294,47 @@ void drawDashboard(const Dashboard& d) {
     present();
 }
 
+void drawDetail(const Detail& d) {
+    drawHeader("Details");
+    char buf[40];
+
+    drawRow("WiFi:",   d.ssid, 54);
+    drawRow("IP:",     d.ip, 78);
+    snprintf(buf, sizeof(buf), "%d dBm", d.rssi);
+    drawRow("Signal:", buf, 102);
+    snprintf(buf, sizeof(buf), "%d%%%s", d.battery, d.charging ? " (chg)" : "");
+    drawRow("Battery:", buf, 126);
+    drawRow("5h reset:", d.reset5h, 150);
+    drawRow("7d reset:", d.reset7d, 174);
+    drawRow("Uptime:",   d.uptime, 198);
+
+    present();
+}
+
+void drawRefreshAnim(int frame) {
+    canvas.fillScreen(rgb(T_BG));
+
+    // Mascot bobs up and down on a short cycle.
+    static const int kBob[] = {0, 5, 10, 13, 10, 5};
+    int oy = kBob[frame % 6];
+    const int s = 4;                       // 44 x 32 mascot
+    int mw = 11 * s;
+    drawMascot(canvas.width() / 2 - mw / 2, 56 + oy, s);
+
+    // Shadow that shrinks as it rises, for a little life.
+    int sw = 30 - oy;
+    canvas.fillRoundRect(canvas.width() / 2 - sw / 2, 100, sw, 6, 3, rgb(T_TRACK));
+
+    // "Refreshing" with cycling dots.
+    String t = "Refreshing";
+    for (int i = 0; i < frame % 4; i++) t += ".";
+    canvas.setFont(&fonts::FreeSansBold12pt7b);
+    canvas.setTextDatum(textdatum_t::top_center);
+    canvas.setTextColor(rgb(T_CORAL));
+    canvas.drawString(t, canvas.width() / 2, 140);
+    present();
+}
+
 namespace {
 // Centered keypad: 3 cols x 4 rows of compact cells (not stretched across the
 // full width). Bottom row is Clear / 0 / Backspace.

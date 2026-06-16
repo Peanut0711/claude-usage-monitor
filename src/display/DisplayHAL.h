@@ -39,6 +39,17 @@ void drawUnlock(const String& portalUrl, int failsRemaining);
 // Connected/running status line.
 void drawStatus(const String& ssid, const String& ip, int rssi);
 
+// Detail/info page (toggled with IO12).
+struct Detail {
+    String ssid, ip;
+    int    rssi;
+    int    battery;
+    bool   charging;
+    String reset5h, reset7d;
+    String uptime;
+};
+void drawDetail(const Detail& d);
+
 // --- Stage 4 dashboard ------------------------------------------------------
 struct Dashboard {
     float  current      = 0;    // 5h utilization, percent 0..100
@@ -54,6 +65,10 @@ struct Dashboard {
 // Full themed dashboard: mascot, title, WiFi + battery, two colored bars with
 // pill labels and reset countdowns, and a status line.
 void drawDashboard(const Dashboard& d);
+
+// One frame of the "refreshing" animation (bouncing mascot + dots). Call with
+// an incrementing frame counter while a poll is in flight.
+void drawRefreshAnim(int frame);
 
 // Shown when a poll fails so a photo of the screen reveals the HTTP code.
 void drawApiError(int httpCode, const String& note);
