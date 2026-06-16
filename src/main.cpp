@@ -46,39 +46,35 @@ String fmtCountdown(long resetEpoch, time_t now) {
     return String(h) + "h " + String(m) + "m";
 }
 
-// Brief startup window: holding either side button (IO12 / IO16) wipes stored
-// credentials so the user can re-run setup (e.g. to enter a corrected token).
-// These are the buttons broken out on the enclosure; BOOT is internal-only.
-bool sideButtonDown() {
-    return digitalRead(TDS3_PIN_BTN_IO12) == LOW ||
-           digitalRead(TDS3_PIN_BTN_IO16) == LOW;
+// IO16 is the only assigned side button (boot-hold = factory reset; in Running
+// = backlight toggle). IO12 is intentionally unassigned.
+bool io16Down() {
+    return digitalRead(TDS3_PIN_BTN_IO16) == LOW;
 }
 
-// Toggle the backlight (power saving). Touch keeps working with it off, so the
-// Home button also wakes the screen.
+// Toggle the backlight (power saving). Touch keeps working with it off.
 void toggleBacklight() {
     gScreenOff = !gScreenOff;
     display::setBrightness(gScreenOff ? 0 : 200);   // restore default on wake
 }
 
-// Edge-detected side-button press (for manual refresh in Running state).
-bool sideButtonPressed() {
+// Edge-detected IO16 press.
+bool io16Pressed() {
     static bool was = false;
-    bool down = sideButtonDown();
+    bool down = io16Down();
     bool edge = down && !was;
     was = down;
     return edge;
 }
 
 bool factoryResetRequested() {
-    pinMode(TDS3_PIN_BTN_IO12, INPUT_PULLUP);
     pinMode(TDS3_PIN_BTN_IO16, INPUT_PULLUP);
-    display::drawMessage("Starting", "Hold a side button to reset & re-setup");
+    display::drawMessage("Starting", "Hold IO16 to reset & re-setup");
     uint32_t start = millis();
     while (millis() - start < 2500) {
-        if (sideButtonDown()) {
+        if (io16Down()) {
             uint32_t held = millis();           // require a deliberate hold
-            while (sideButtonDown()) {
+            while (io16Down()) {
                 if (millis() - held > 400) return true;
                 delay(20);
             }
@@ -271,20 +267,23 @@ void loop() {
             int tx, ty;
             bool touching = touch::read(tx, ty);    // also drives Home event
 
-            // Home button: toggle once per press, re-arm after release (>300ms).
+            // Home button -> manual refresh. One action per press; re-arm only
+            // after the repeated event stops for >300ms (finger lifted).
             static bool     armed = true;
             static uint32_t lastSeen = 0;
             uint32_t now = millis();
+            bool homeFired = false;
             if (touch::homePressed()) {
                 lastSeen = now;
-                if (armed) { toggleBacklight(); armed = false; }
+                if (armed) { homeFired = true; armed = false; }
             } else if (now - lastSeen > 300) {
                 armed = true;
             }
 
+            // IO16 -> backlight on/off (also wakes from off).
+            if (io16Pressed()) toggleBacklight();
+
             // Brightness: drag vertically on the LEFT edge strip (top=bright).
-            // Left only: the right edge is near the Home button and caused
-            // accidental brightness changes.
             if (!gScreenOff && touching && tx < 48) {
                 int b = 255 - (ty - 4) * (255 - 25) / (218 - 4);
                 if (b < 25)  b = 25;
@@ -293,8 +292,8 @@ void loop() {
             }
 
             if (gScreenOff) { delay(30); break; }   // screen off: skip work
-            if (sideButtonPressed()) {          // manual refresh
-                Serial.println("[run] manual refresh");
+            if (homeFired) {                        // refresh now
+                Serial.println("[run] manual refresh (home)");
                 display::drawMessage("Usage", "Refreshing...");
                 pollAndRender();
                 gLastPoll = millis();
