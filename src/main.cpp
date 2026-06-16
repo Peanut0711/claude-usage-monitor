@@ -17,6 +17,7 @@
 #include "net/Api.h"
 #include "net/Net.h"
 #include "net/Portal.h"
+#include "power/Power.h"
 #include "secure/CredentialStore.h"
 
 namespace {
@@ -95,8 +96,8 @@ void pollAndRender() {
         d.weekly       = u.util7d;
         d.weeklyReset  = fmtCountdown(u.reset7d, now);
         d.rssi         = net::rssi();
-        d.battery      = 100;     // placeholder until SY6970 PMU bring-up
-        d.charging     = true;
+        d.battery      = power::percent();
+        d.charging     = power::charging();
         d.status       = kStatus[gStatusIdx % (sizeof(kStatus) / sizeof(kStatus[0]))];
         gStatusIdx++;
         display::drawDashboard(d);
@@ -191,6 +192,7 @@ void setup() {
     Serial.println("[display] init OK");
 
     credentials::begin();
+    power::begin();
     if (factoryResetRequested()) {
         Serial.println("[reset] BOOT held -> wiping credentials");
         credentials::wipe();
