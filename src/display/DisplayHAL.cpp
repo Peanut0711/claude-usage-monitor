@@ -272,7 +272,7 @@ void drawDashboard(const Dashboard& d) {
     canvas.fillScreen(rgb(T_BG));
 
     // ---- Top bar ----------------------------------------------------------
-    drawLogo(12, 4, 1);                         // 24x24 official logo
+    drawLogo(10, 3, 1);                         // 30x30 official logo
     canvas.setFont(&fonts::FreeSansBold12pt7b);
     canvas.setTextDatum(textdatum_t::top_center);
     canvas.setTextColor(rgb(T_TITLE));
@@ -314,15 +314,15 @@ void drawRefreshAnim(int frame) {
     canvas.fillScreen(rgb(T_BG));
 
     // Logo bobs up and down on a short cycle.
-    static const int kBob[] = {0, 5, 10, 13, 10, 5};
+    static const int kBob[] = {0, 4, 8, 10, 8, 4};
     int oy = kBob[frame % 6];
-    const int s = 2;                       // 48 x 48 logo
+    const int s = 2;                       // 60 x 60 logo
     int mw = CC_LOGO_W * s;
-    drawLogo(canvas.width() / 2 - mw / 2, 36 + oy, s);
+    drawLogo(canvas.width() / 2 - mw / 2, 28 + oy, s);
 
     // Shadow that shrinks as it rises, for a little life.
-    int sw = 40 - oy;
-    canvas.fillRoundRect(canvas.width() / 2 - sw / 2, 100, sw, 6, 3, rgb(T_TRACK));
+    int sw = 48 - oy;
+    canvas.fillRoundRect(canvas.width() / 2 - sw / 2, 104, sw, 6, 3, rgb(T_TRACK));
 
     // "Refreshing" with cycling dots.
     String t = "Refreshing";
