@@ -14,6 +14,9 @@ bool begin();
 
 bool available();
 
+// Take a slow battery-voltage sample if due (self-throttled). Call each loop.
+void update();
+
 // Estimated battery charge 0..100. Returns 100 when running on USB with no
 // battery detected.
 int percent();

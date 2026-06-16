@@ -292,6 +292,7 @@ void loop() {
         return;
     }
 #endif
+    power::update();          // slow battery sampling (self-throttled)
     switch (gState) {
         case State::Setup:
             if (portal::handle() == portal::Event::Provisioned) {
