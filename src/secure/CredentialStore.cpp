@@ -28,6 +28,24 @@ bool sealAndStore(const char* key, const uint8_t k[crypto::KEY_LEN],
     return ok;
 }
 
+// Seal the WiFi SSID/pass under the device key. Shared by provision() (full
+// setup) and updateWifi() (WiFi-only change that keeps the stored token).
+bool sealWifi(const String& ssid, const String& pass) {
+    uint8_t devKey[crypto::KEY_LEN];
+    if (!crypto::deriveDeviceKey(devKey)) return false;
+
+    uint8_t wifiPt[WIFI_PT_MAX];
+    wifiPt[0] = (uint8_t)ssid.length();
+    memcpy(wifiPt + 1, ssid.c_str(), ssid.length());
+    memcpy(wifiPt + 1 + ssid.length(), pass.c_str(), pass.length());
+    size_t wifiLen = 1 + ssid.length() + pass.length();
+
+    bool ok = sealAndStore(CUM_NVS_WIFI_BLOB, devKey, wifiPt, wifiLen);
+    memset(wifiPt, 0, sizeof(wifiPt));
+    memset(devKey, 0, sizeof(devKey));
+    return ok;
+}
+
 }  // namespace
 
 namespace credentials {
@@ -49,31 +67,28 @@ bool provision(const String& ssid, const String& pass,
     if (token.length() == 0 || token.length() > CUM_TOKEN_MAX_LEN) return false;
     if (pin.length() != CUM_PIN_LEN) return false;
 
-    uint8_t devKey[crypto::KEY_LEN];
     uint8_t pinKey[crypto::KEY_LEN];
-    bool ok = crypto::deriveDeviceKey(devKey) && crypto::derivePinKey(pin, pinKey);
+    bool ok = crypto::derivePinKey(pin, pinKey);
 
     if (ok) {
-        // Pack WiFi plaintext.
-        uint8_t wifiPt[WIFI_PT_MAX];
-        wifiPt[0] = (uint8_t)ssid.length();
-        memcpy(wifiPt + 1, ssid.c_str(), ssid.length());
-        memcpy(wifiPt + 1 + ssid.length(), pass.c_str(), pass.length());
-        size_t wifiLen = 1 + ssid.length() + pass.length();
-
-        ok = sealAndStore(CUM_NVS_WIFI_BLOB, devKey, wifiPt, wifiLen) &&
+        ok = sealWifi(ssid, pass) &&
              sealAndStore(CUM_NVS_TOKEN_BLOB, pinKey,
                           (const uint8_t*)token.c_str(), token.length());
-        memset(wifiPt, 0, sizeof(wifiPt));
     }
 
     if (ok) {
         storage::setPinFails(0);
         storage::setProvisioned(true);
     }
-    memset(devKey, 0, sizeof(devKey));
     memset(pinKey, 0, sizeof(pinKey));
     return ok;
+}
+
+bool updateWifi(const String& ssid, const String& pass) {
+    if (!isProvisioned()) return false;                       // nothing to keep
+    if (ssid.length() == 0 || ssid.length() > CUM_SSID_MAX_LEN) return false;
+    if (pass.length() > CUM_PASS_MAX_LEN) return false;
+    return sealWifi(ssid, pass);
 }
 
 bool loadWifi(String& ssidOut, String& passOut) {

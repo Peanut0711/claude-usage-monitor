@@ -39,10 +39,11 @@ small{color:#8a9099}</style></head><body>
 <label>WiFi name (SSID)</label><input name="ssid" maxlength="32" required>
 <label>WiFi password</label><input name="pass" type="password" maxlength="64">
 <label>OAuth token</label>
-<textarea name="token" required placeholder="run: claude setup-token"></textarea>
+<textarea name="token" placeholder="run: claude setup-token"></textarea>
 <label>PIN (4 digits)</label>
-<input name="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required>
-<small>The PIN encrypts your token and is never stored.</small>
+<input name="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4">
+<small>The PIN encrypts your token and is never stored.<br>
+Changing WiFi only? Leave token &amp; PIN blank to keep the saved token.</small>
 <button type="submit">Save &amp; reboot</button></form></body></html>)HTML";
 
 const char SAVED_HTML[] PROGMEM = R"HTML(<!DOCTYPE html><html><head>
@@ -88,6 +89,9 @@ void handleSave() {
     token.trim();
     pin.trim();
 
+    // Blank token + already provisioned = change WiFi only, keep the token.
+    bool wifiOnly = (token.length() == 0 && credentials::isProvisioned());
+
     String err;
     if (ssid.length() == 0)
         err = "WiFi name (SSID) is empty.";
@@ -95,11 +99,11 @@ void handleSave() {
         err = "WiFi name too long: " + String(ssid.length()) + " > 32.";
     else if (pass.length() > CUM_PASS_MAX_LEN)
         err = "WiFi password too long: " + String(pass.length()) + " > 64.";
-    else if (token.length() == 0)
+    else if (!wifiOnly && token.length() == 0)
         err = "Token is empty.";
     else if (token.length() > CUM_TOKEN_MAX_LEN)
         err = "Token too long: " + String(token.length()) + " > 1024.";
-    else if (pin.length() != CUM_PIN_LEN)
+    else if (!wifiOnly && pin.length() != CUM_PIN_LEN)
         err = "PIN must be exactly 4 digits (you entered " + String(pin.length()) + ").";
 
     if (err.length()) {
@@ -107,7 +111,9 @@ void handleSave() {
         return;
     }
 
-    if (credentials::provision(ssid, pass, token, pin)) {
+    bool ok = wifiOnly ? credentials::updateWifi(ssid, pass)
+                       : credentials::provision(ssid, pass, token, pin);
+    if (ok) {
         sendProgmem(SAVED_HTML);
         gPending = portal::Event::Provisioned;   // main reboots
     } else {

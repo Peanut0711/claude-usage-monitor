@@ -24,6 +24,11 @@ void begin();
 bool provision(const String& ssid, const String& pass,
                const String& token, const String& pin);
 
+// Re-seal only the WiFi credentials, keeping the stored token (and PIN). For
+// changing networks (e.g. home <-> office) without re-entering the token.
+// Returns false if not yet provisioned or on a crypto/NVS error.
+bool updateWifi(const String& ssid, const String& pass);
+
 bool isProvisioned();
 
 // --- WiFi (available without the PIN) ---------------------------------------
