@@ -309,8 +309,13 @@ void loop() {
             } else if (e == portal::Event::Provisioned) {
                 delay(300);                         // lockout wiped creds
                 ESP.restart();
-            } else if (gTouchOn) {
-                handleKeypad();
+            } else {
+                if (io16Pressed()) {                // IO16 toggles backlight
+                    toggleBacklight();
+                    if (!gScreenOff) display::drawKeypad(gPin.length(), "");
+                }
+                // Keypad only when the screen is on (can't type blind).
+                if (!gScreenOff && gTouchOn) handleKeypad();
             }
             delay(20);
             break;
