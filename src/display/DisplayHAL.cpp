@@ -260,16 +260,16 @@ void drawMetricCard(int yc, const char* label, float pct, const String& reset,
     drawPill(label, cx + cw - 16, yc + 10);
 
     // Bar.
-    const int bx = cx + 18, bw = cw - 36, by = yc + 44, bh = 14, r = 7;
+    const int bx = cx + 18, bw = cw - 36, by = yc + 40, bh = 14, r = 7;
     canvas.fillRoundRect(bx, by, bw, bh, r, rgb(T_TRACK));
     int fw = (int)(bw * pct / 100.0f);
     if (fw > 0) canvas.fillRoundRect(bx, by, fw < bh ? bh : fw, bh, r, rgb(barColor));
 
-    // Reset countdown.
-    canvas.setFont(&fonts::FreeSans9pt7b);
+    // Reset countdown — larger and brighter for readability.
+    canvas.setFont(&fonts::FreeSans12pt7b);
     canvas.setTextDatum(textdatum_t::top_left);
-    canvas.setTextColor(rgb(T_MUTED));
-    canvas.drawString("Resets in " + reset, bx, yc + 60);
+    canvas.setTextColor(rgb(0xC8BEDC));
+    canvas.drawString("Resets in " + reset, bx, yc + 56);
 }
 }  // namespace
 
@@ -427,10 +427,10 @@ void drawKeypad(int enteredLen, const String& note) {
 
 void drawMessage(const String& title, const String& line) {
     drawHeader(title.c_str());
-    canvas.setFont(&fonts::FreeSans9pt7b);
+    canvas.setFont(&fonts::FreeSans12pt7b);
     canvas.setTextDatum(textdatum_t::top_left);
     canvas.setTextColor(rgb(COL_LABEL));
-    canvas.drawString(line, 16, 80);
+    canvas.drawString(line, 16, 78);
     present();
 }
 
