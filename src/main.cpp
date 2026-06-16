@@ -488,7 +488,7 @@ void loop() {
             // Animate while an animated poll is running (skip on the detail page).
             if (gPollRunning && gPollAnimate && gPage == PAGE_DASH) {
                 display::drawRefreshAnim(gAnimFrame++);
-                delay(70);
+                delay(120);                          // slower bob
             } else {
                 delay(50);
             }
