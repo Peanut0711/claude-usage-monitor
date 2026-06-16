@@ -43,10 +43,20 @@ PlatformIO 스캐폴드 + ST7796 디스플레이 최소 구동 코드 작성 완
 > 주의: 이 펌웨어는 USB CDC(`ARDUINO_USB_CDC_ON_BOOT=1`)로 로그를 출력하므로,
 > 리셋 직후 포트가 재열거됨. 시리얼 모니터는 리셋 후 곧바로 열어야 앱 로그가 잡힘.
 
-## ✅ Stage 2 — 코드 완료 (실기 부팅 확인, E2E 수동 테스트 대기)
+## ✅ Stage 2 — 완전 종료 (E2E 실기 검증 완료)
 
 WiFi 캡티브 포털 프로비저닝 + 토큰 암호화 저장 + PIN 언락까지 구현·빌드·업로드 완료.
-부팅 시 셋업 모드(AP `ClaudeMon-XXXX` + 포털 `192.168.4.1`)로 정상 진입 확인.
+실기 E2E 검증: 셋업 폼 제출 → 재부팅 → 집 WiFi 자동접속 → 웹 언락(LAN IP)에서
+PIN 입력 → 상태 화면(WiFi/IP/Signal) 전환까지 전 과정 정상 동작 확인.
+
+운영 메모(삽질 끝에 확정된 사실):
+- **ESP32-S3는 2.4GHz 전용** — 5GHz SSID에는 절대 연결 안 됨. 셋업 시 2.4GHz SSID 필수.
+- **`claude setup-token`은 Claude Code 안의 `!`로 실행하면 백그라운드로 밀려 토큰이
+  안 보임.** 반드시 **별도 일반 터미널 창**에서 실행해 토큰(`sk-ant-oat...`)을 받을 것.
+- **AP 비밀번호는 `src/secrets.h`**(git 제외)에 둠. `secrets.example.h` 복사해서 생성.
+  기본 fallback은 `change-me-strong-pw` — 반드시 교체.
+- 폰 연결 시 리셋되던 문제 → **WiFi TX 출력 11dBm로 낮춰 해결**(브라운아웃 완화, `Net.cpp`).
+- WiFi 접속 실패 시 자동으로 셋업 모드 복귀(잘못된 비번/SSID 입력해도 안전).
 
 설계 확정 사항:
 - **자격증명**: OAuth 토큰 (`claude setup-token`으로 발급, 포털 폼에 붙여넣기).
