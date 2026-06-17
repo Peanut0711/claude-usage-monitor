@@ -497,12 +497,10 @@ void setup() {
     }
     Serial.println("[display] init OK");
 
-    for (int f = 0; f <= display::SPLASH_REST_Y; f += 2) {  // splash slides into place
-        display::drawSplash(f);
-        delay(35);
-    }
-    // No static hold here: factoryResetRequested() animates the splash (bob +
-    // loading bar) for its wait window, so the motion continues seamlessly.
+    // Logo + wordmark sit at their rest position from the very first frame (no
+    // slide-in). factoryResetRequested()/drawBootBusy keep them static and only
+    // spin the loading ring.
+    display::drawSplash(display::SPLASH_REST_Y);
 
 #if CUM_TOUCH_TEST
     gTouchOn = touch::begin();

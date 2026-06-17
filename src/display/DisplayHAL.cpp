@@ -12,7 +12,7 @@
 #include "claudecode_bolt.h"
 #include "claudecode_logo.h"
 #include "claudecode_wordmark.h"
-#include "nexon_num_16.h"   // NEXON Lv1 Gothic Bold, digits + '%' (big % number)
+#include "nexon_num.h"      // NEXON Lv1 Gothic Bold 14pt, digits + '%' (big % number)
 #include "nexon_text.h"     // NEXON Lv1 Gothic Bold, ASCII (reset countdown)
 
 namespace {
@@ -313,10 +313,10 @@ void drawCardContent(int yc, float pct, uint32_t barColor, float pop, float glow
     // vertically between the card top (yc) and the bar top (yc+42) -> yc+21.
     char buf[8];
     snprintf(buf, sizeof(buf), "%d%%", (int)(pct + 0.5f));
-    canvas.setFont(&NexonNum16);
+    canvas.setFont(&NexonNum);
     canvas.setTextDatum(textdatum_t::middle_left);
     canvas.setTextColor(rgb(T_TITLE));            // number stays steady (only the bar flashes)
-    canvas.drawString(buf, cx + 18, yc + 24);     // even ~6px gaps: number/bar/reset
+    canvas.drawString(buf, cx + 18, yc + 21);     // centered between card top and bar top
 
     const int bx = cx + 18, bw = cw - 36, by = yc + 42, bh = 12, r = 6;
     canvas.fillRoundRect(bx, by, bw, bh, r, rgb(T_TRACK));
@@ -350,7 +350,8 @@ void drawMetricCard(int yc, const char* label, float pct, const String& reset,
 // Redraw ONLY one card's dynamic content and push ONLY that region to the LCD.
 // The static card (background, pill, reset text) must already be on screen from a
 // prior full drawDashboard(); we never touch the pill or the rounded corners.
-void drawCardBand(int yc, float pct, uint32_t barColor, float pop, float glow) {
+void drawCardBand(int yc, float pct, uint32_t barColor, float pop, float glow,
+                  const char* label) {
     const int cx = 12, cw = canvas.width() - 24;
     // Clear the changing areas to card bg: number (left) and the bar+spark band.
     // The band stops at yc+59 so it never touches the reset text (~yc+61+). Up-
@@ -359,6 +360,7 @@ void drawCardBand(int yc, float pct, uint32_t barColor, float pop, float glow) {
     canvas.fillRect(cx + 16, yc + 7,  172,     30, rgb(T_CARD));   // number
     canvas.fillRect(cx + 16, yc + 28, cw - 20, 31, rgb(T_CARD));   // bar + sparks (right room)
     drawCardContent(yc, pct, barColor, pop, glow);
+    drawPill(label, cx + cw - 16, yc + 8);   // bar clear nicks the pill bottom; restore it
     // Transfer only the bounding box of the changed region (clip the push).
     lcd.setClipRect(cx + 16, yc + 7, cw - 20, 52);
     canvas.pushSprite(0, 0);
@@ -398,8 +400,8 @@ void drawDashboard(const Dashboard& d) {
 // count-up animates well above 30fps. Requires a prior full drawDashboard().
 void drawDashboardBands(float curPct, float wkPct, float curPop, float wkPop,
                         float curGlow, float wkGlow) {
-    drawCardBand(34,  curPct, T_CUR, curPop, curGlow);
-    drawCardBand(118, wkPct,  T_WK,  wkPop,  wkGlow);
+    drawCardBand(34,  curPct, T_CUR, curPop, curGlow, "Current");
+    drawCardBand(118, wkPct,  T_WK,  wkPop,  wkGlow,  "Weekly");
 }
 
 void drawDetail(const Detail& d) {
@@ -478,7 +480,7 @@ void drawSplash(int yoff) {
              canvas.width() / 2 - CC_LOGO_L_W / 2, 8 + yoff, 1, T_CORAL);
     // Wordmark is an anti-aliased RGB565 image (blended over T_BG) for smooth
     // edges; 1-bit text looked jagged.
-    canvas.pushImage(canvas.width() / 2 - CC_TEXT_W / 2, 110 + yoff,
+    canvas.pushImage(canvas.width() / 2 - CC_TEXT_W / 2, 104 + yoff,
                      CC_TEXT_W, CC_TEXT_H, (const lgfx::rgb565_t*)CC_TEXT);
     present();
 }
@@ -498,7 +500,7 @@ void drawResetHold(float frac) {
 
     drawBits(CC_LOGO_L, CC_LOGO_L_W, CC_LOGO_L_H,
              canvas.width() / 2 - CC_LOGO_L_W / 2, 8 + yoff, 1, T_CORAL);
-    canvas.pushImage(canvas.width() / 2 - CC_TEXT_W / 2, 110 + yoff,
+    canvas.pushImage(canvas.width() / 2 - CC_TEXT_W / 2, 104 + yoff,
                      CC_TEXT_W, CC_TEXT_H, (const lgfx::rgb565_t*)CC_TEXT);
 
     const int bw = 220, bx = canvas.width() / 2 - bw / 2, by = 202, bh = 8, r = 4;
@@ -511,22 +513,19 @@ void drawResetHold(float frac) {
 void drawBootBusy(int frame) {
     canvas.fillScreen(rgb(T_BG));
 
-    // Gentle float: the splash rises UP from its rest spot and settles back,
-    // never dipping below it (rest is the lowest point).
-    float lift = (1.0f - cosf(frame * 0.10f)) * 0.5f;     // 0..1, smooth
-    int yoff = SPLASH_REST_Y - (int)roundf(4.0f * lift);  // up to 4px up, back to rest
+    // Logo + wordmark stay fixed at the rest position; only the ring below spins.
+    const int yoff = SPLASH_REST_Y;
     drawBits(CC_LOGO_L, CC_LOGO_L_W, CC_LOGO_L_H,
              canvas.width() / 2 - CC_LOGO_L_W / 2, 8 + yoff, 1, T_CORAL);
-    canvas.pushImage(canvas.width() / 2 - CC_TEXT_W / 2, 110 + yoff,
+    canvas.pushImage(canvas.width() / 2 - CC_TEXT_W / 2, 104 + yoff,
                      CC_TEXT_W, CC_TEXT_H, (const lgfx::rgb565_t*)CC_TEXT);
 
-    // Indeterminate loading bar: a coral segment eases back and forth.
-    const int bw = 160, bx = canvas.width() / 2 - bw / 2, by = 202, bh = 6, r = 3;
-    const int segW = 55;
-    canvas.fillRoundRect(bx, by, bw, bh, r, rgb(T_TRACK));
-    float t = 0.5f + 0.5f * sinf(frame * 0.07f);     // 0..1 smooth bounce
-    int sx = bx + (int)((bw - segW) * t);
-    canvas.fillRoundRect(sx, by, segW, bh, r, rgb(T_CORAL));
+    // Indeterminate spinner: a coral arc rotates around a faint ring. Rotation is
+    // continuous, so (unlike a linear marquee) there's no wrap seam or square end.
+    const int cx = canvas.width() / 2, cy = 184, r0 = 9, r1 = 13;
+    canvas.fillArc(cx, cy, r0, r1, 0, 360, rgb(T_TRACK));        // faint full ring
+    int a = (int)((uint32_t)frame * 6u % 360u);
+    canvas.fillArc(cx, cy, r0, r1, a, a + 110, rgb(T_CORAL));    // rotating arc
     present();
 }
 
