@@ -627,10 +627,20 @@ void loop() {
         case State::Running: {
             bool asleep = screenAsleep();
 
-            // IO16: wake (show current view) if off, else force off.
+            // IO16: wake (show current view + animated refresh) if off, else force off.
             if (io16Pressed()) {
-                if (asleep) { gManualOff = false; noteInput(); renderCurrentView(); }
-                else        { gManualOff = true; }
+                if (asleep) {
+                    gManualOff = false; noteInput();
+                    renderCurrentView();             // last view -> veil backdrop
+                    requestPoll(true);               // play the refresh overlay + refetch
+                    gLastPoll = millis();
+                    // Paint the dimmed overlay NOW, while the backlight is still off,
+                    // so the first frame shown when it turns back on is the overlay --
+                    // not a bright flash of the undimmed dashboard.
+                    if (gPage == PAGE_DASH) display::drawRefreshAnim(gAnimFrame++);
+                } else {
+                    gManualOff = true;
+                }
                 delay(30);
                 break;
             }
@@ -642,7 +652,12 @@ void loop() {
                 if (doubleTapDetected() || io12Pressed()) {
                     gManualOff = false;
                     noteInput();
-                    renderCurrentView();
+                    renderCurrentView();             // last view -> veil backdrop
+                    requestPoll(true);               // play the refresh overlay + refetch
+                    gLastPoll = millis();
+                    // Draw the dimmed overlay before the backlight returns -> no
+                    // bright-dashboard flash on wake.
+                    if (gPage == PAGE_DASH) display::drawRefreshAnim(gAnimFrame++);
                 }
                 touch::homePressed();                // discard while asleep
                 delay(30);

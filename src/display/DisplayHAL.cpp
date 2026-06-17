@@ -558,26 +558,58 @@ void drawBootBusy(int frame) {
     present();
 }
 
-void drawRefreshAnim(int frame) {
-    canvas.fillScreen(rgb(T_BG));
+// Dim every pixel of a 16-bit sprite to `pct`% brightness in place (a flat dark
+// veil = compositing black at (100-pct)% alpha over it). readPixel/drawPixel keep
+// this independent of the sprite's internal byte order; it's a one-time cost.
+void dimSprite(lgfx::LGFX_Sprite& s, int pct) {
+    const int num = (pct * 256) / 100;     // fixed-point scale
+    const int w = s.width(), h = s.height();
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            uint16_t p = (uint16_t)s.readPixel(x, y);
+            uint16_t r = (p >> 11) & 0x1F, g = (p >> 5) & 0x3F, b = p & 0x1F;
+            r = (uint16_t)((r * num) >> 8);
+            g = (uint16_t)((g * num) >> 8);
+            b = (uint16_t)((b * num) >> 8);
+            s.drawPixel(x, y, (uint16_t)((r << 11) | (g << 5) | b));
+        }
+    }
+}
 
-    // Logo bobs up and down on a short cycle.
+void drawRefreshAnim(int frame) {
+    // Backdrop = the dashboard that's still on `canvas` when the refresh starts,
+    // dimmed once and reused each frame, so the manual refresh reads as an overlay
+    // on the live screen rather than a full black-out. Falls back to a black
+    // background if the snapshot sprite can't be allocated.
+    static lgfx::LGFX_Sprite veil(&lcd);
+    static bool veilReady = false;
+    if (frame == 0) {
+        if (!veilReady) {
+            veil.setPsram(true);
+            veil.setColorDepth(16);
+            veilReady = (veil.createSprite(canvas.width(), canvas.height()) != nullptr);
+        }
+        if (veilReady) {
+            canvas.pushSprite(&veil, 0, 0);    // capture the current dashboard
+            dimSprite(veil, 5);                // ~95% black veil over it
+        }
+    }
+    if (veilReady) veil.pushSprite(&canvas, 0, 0);
+    else           canvas.fillScreen(rgb(T_BG));
+
+    // Logo bobs up and down on a short cycle, centered over the dimmed dashboard.
     static const int kBob[] = {0, 4, 8, 10, 8, 4};
     int oy = kBob[frame % 6];
     int mw = CC_LOGO_M_W;                  // 60px native logo
     drawBits(CC_LOGO_M, CC_LOGO_M_W, CC_LOGO_M_H,
-             canvas.width() / 2 - mw / 2, 28 + oy, 1, T_CORAL);
-
-    // Shadow that shrinks as it rises, for a little life.
-    int sw = 48 - oy;
-    canvas.fillRoundRect(canvas.width() / 2 - sw / 2, 104, sw, 6, 3, rgb(T_TRACK));
+             canvas.width() / 2 - mw / 2, 78 + oy, 1, T_CORAL);
 
     // Static "Refreshing..." — the bobbing logo conveys activity, so the text
     // stays still (no cycling dots).
     canvas.setFont(&fonts::FreeSansBold12pt7b);
     canvas.setTextDatum(textdatum_t::top_center);
     canvas.setTextColor(rgb(T_CORAL));
-    canvas.drawString("Refreshing...", canvas.width() / 2, 140);
+    canvas.drawString("Refreshing...", canvas.width() / 2, 150);
     present();
 }
 
