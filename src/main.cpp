@@ -124,6 +124,10 @@ bool doubleTapDetected() {
 int           gBootFrame    = 0;   // frame counter (continuous across both)
 volatile bool gBootAnimRun  = false;
 volatile bool gBootAnimDone = false;
+// First boot keeps the SAME spinner from WiFi-connect through the first data
+// poll (so it reads as one continuous load, not "loading... loading again");
+// cleared once that first poll is consumed. Later refreshes use drawRefreshAnim.
+bool          gBootLoading  = true;
 
 bool factoryResetRequested() {
     pinMode(TDS3_PIN_BTN_IO16, INPUT_PULLUP);
@@ -452,8 +456,8 @@ void enterRunning() {
     pinMode(TDS3_PIN_BTN_IO12, INPUT_PULLUP);
     pinMode(TDS3_PIN_BTN_IO16, INPUT_PULLUP);
     Serial.println("[run] unlocked; polling Anthropic API");
-    display::drawRefreshAnim(0);        // intro frame; loop animates until result
-    requestPoll(true);                  // first poll, animated
+    display::drawBootBusy(gBootFrame++);  // keep the boot spinner; loop continues it
+    requestPoll(true);                    // first poll, animated
     gLastPoll = millis();
 }
 
@@ -661,6 +665,7 @@ void loop() {
             // Consume a finished poll. Keep the last good data on failure.
             if (gPollDone) {
                 gPollDone = false;
+                gBootLoading = false;   // boot-spinner phase ends at the first result
                 if (gPollResult.ok) {
                     gLastUsage = gPollResult;        // fresh good data
                     gStale = false;
@@ -725,8 +730,13 @@ void loop() {
                 lastUs = now;
 #endif
             } else if (gPollRunning && gPollAnimate && gPage == PAGE_DASH) {
-                display::drawRefreshAnim(gAnimFrame++);
-                delay(120);                          // slower bob
+                if (gBootLoading) {                  // first boot: continue the spinner
+                    display::drawBootBusy(gBootFrame++);
+                    delay(20);
+                } else {
+                    display::drawRefreshAnim(gAnimFrame++);
+                    delay(120);                      // slower bob
+                }
             } else {
                 delay(16);   // idle ~60Hz: poll the Home button often so short taps register
             }
