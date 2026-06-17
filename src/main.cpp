@@ -119,9 +119,9 @@ bool doubleTapDetected() {
 
 bool factoryResetRequested() {
     pinMode(TDS3_PIN_BTN_IO16, INPUT_PULLUP);
-    display::drawSplash(display::SPLASH_REST_Y);  // same resting spot as the intro
     constexpr uint32_t HOLD_MS = 1500;            // hold IO16 this long to reset
     uint32_t start = millis();
+    int frame = 0;
     while (millis() - start < 2500) {
         if (io16Down()) {                         // reveal the reset bar only on press
             uint32_t held = millis();
@@ -131,8 +131,9 @@ bool factoryResetRequested() {
                 display::drawResetHold((float)dt / HOLD_MS);
                 delay(20);
             }
-            display::drawSplash(display::SPLASH_REST_Y);  // released early -> splash
+            // released early -> the loop resumes the busy animation below
         }
+        display::drawBootBusy(frame++);           // bob + loading bar while waiting
         delay(20);
     }
     return false;
@@ -436,7 +437,8 @@ void setup() {
         display::drawSplash(f);
         delay(35);
     }
-    delay(700);
+    // No static hold here: factoryResetRequested() animates the splash (bob +
+    // loading bar) for its wait window, so the motion continues seamlessly.
 
 #if CUM_TOUCH_TEST
     gTouchOn = touch::begin();

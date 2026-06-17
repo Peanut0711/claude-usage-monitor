@@ -7,6 +7,8 @@
 // ============================================================================
 #include "DisplayHAL.h"
 
+#include <math.h>
+
 #include "claudecode_bolt.h"
 #include "claudecode_logo.h"
 #include "claudecode_wordmark.h"
@@ -467,6 +469,28 @@ void drawResetHold(float frac) {
     canvas.fillRoundRect(bx, by, bw, bh, r, rgb(T_TRACK));
     int fw = (int)(bw * frac);
     if (fw > 0) canvas.fillRoundRect(bx, by, fw, bh, r, rgb(T_CORAL));
+    present();
+}
+
+void drawBootBusy(int frame) {
+    canvas.fillScreen(rgb(T_BG));
+
+    // Gentle float: the splash rises UP from its rest spot and settles back,
+    // never dipping below it (rest is the lowest point).
+    float lift = (1.0f - cosf(frame * 0.10f)) * 0.5f;     // 0..1, smooth
+    int yoff = SPLASH_REST_Y - (int)roundf(4.0f * lift);  // up to 4px up, back to rest
+    drawBits(CC_LOGO_L, CC_LOGO_L_W, CC_LOGO_L_H,
+             canvas.width() / 2 - CC_LOGO_L_W / 2, 8 + yoff, 1, T_CORAL);
+    canvas.pushImage(canvas.width() / 2 - CC_TEXT_W / 2, 110 + yoff,
+                     CC_TEXT_W, CC_TEXT_H, (const lgfx::rgb565_t*)CC_TEXT);
+
+    // Indeterminate loading bar: a coral segment eases back and forth.
+    const int bw = 160, bx = canvas.width() / 2 - bw / 2, by = 202, bh = 6, r = 3;
+    const int segW = 55;
+    canvas.fillRoundRect(bx, by, bw, bh, r, rgb(T_TRACK));
+    float t = 0.5f + 0.5f * sinf(frame * 0.07f);     // 0..1 smooth bounce
+    int sx = bx + (int)((bw - segW) * t);
+    canvas.fillRoundRect(sx, by, segW, bh, r, rgb(T_CORAL));
     present();
 }
 
