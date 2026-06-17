@@ -367,14 +367,14 @@ void drawCardBand(int yc, float pct, uint32_t barColor, float pop) {
 void drawDashboard(const Dashboard& d) {
     canvas.fillScreen(rgb(T_BG));
 
-    // ---- Top bar ----------------------------------------------------------
-    drawLogo(10, 3, 1);                         // 30x30 official logo
+    // ---- Top bar (icons aligned to the card box edges: left 12, right 468) -
+    drawLogo(12, 3, 1);                         // 30x30 logo, left edge on box left
     canvas.setFont(&fonts::FreeSansBold12pt7b);
     canvas.setTextDatum(textdatum_t::top_center);
     canvas.setTextColor(rgb(T_TITLE));
     canvas.drawString("Usage", canvas.width() / 2, 8);
 
-    drawBattery(canvas.width() - 42, 9, d.battery, d.charging);
+    drawBattery(canvas.width() - 44, 9, d.battery, d.charging);  // nub tip on box right (468)
     drawWifiBars(canvas.width() - 74, 9, d.rssi);
     if (d.stale)                                   // last poll failed
         canvas.fillCircle(canvas.width() - 90, 16, 4, rgb(T_CUR));

@@ -27,6 +27,8 @@ State    gState;
 String   gSsid;          // remembered for the status screen
 String   gToken;         // decrypted OAuth token, held in RAM while running
 uint32_t gLastPoll = 0;  // millis() of the last API poll
+bool     gClockValid     = false;  // wall clock (NTP) has synced at least once
+bool     gPendTimeRender = false;  // re-render once NTP syncs (refresh "Resets in --")
 
 String   gPin;           // PIN digits typed on the touch keypad
 bool     gTouchOn = false;
@@ -171,17 +173,14 @@ bool     gAnimating = false;
 bool     gNeedFullDash = false;          // next count-up frame must do a full redraw
 bool     gPopCur = false, gPopWk = false;  // pop only the card(s) that grew
 uint32_t gAnimStart = 0;
-uint32_t gDurCur = 0, gDurWk = 0;        // per-card climb lengths (cards run one
-                                         // after the other: top, then bottom)
-// Each card climbs continuously; the big % text rounds to an int so the NUMBER
-// still ticks 1% at a time (~10Hz) while the BAR glides per-pixel. Climb length
-// = (% delta) * STEP_MS, capped at MAX_MS. The cards run sequentially: the top
-// (Current) climbs and pops, GAP_MS lets the burst be enjoyed, then the bottom
-// (Weekly) climbs and pops.
-constexpr uint32_t STEP_MS = 50;         // time per 1% of climb
-constexpr uint32_t MAX_MS  = 3000;       // cap for a large jump
+uint32_t gDurCur = 0, gDurWk = 0;        // per-card climb lengths
+// Both cards climb continuously and in parallel; the big % text rounds to an int
+// so the NUMBER ticks 1% per frame (STEP_MS ~= the ~26ms frame so no skips) while
+// the BAR glides per-pixel. Climb length = (% delta) * STEP_MS, capped at MAX_MS.
+// Each card pops when it lands.
+constexpr uint32_t STEP_MS = 26;         // time per 1% of climb (~1 frame; 100% = 2.6s)
+constexpr uint32_t MAX_MS  = 3000;       // cap for a large jump (>= 100%*STEP_MS)
 constexpr uint32_t POP_MS  = 600;        // spark/flash fade after a card lands
-constexpr uint32_t GAP_MS  = 250;        // pause after top's pop, before bottom climbs
 
 // IO12 cycles pages: dashboard -> detail -> history.
 enum { PAGE_DASH = 0, PAGE_DETAIL = 1, PAGE_HISTORY = 2, PAGE_COUNT = 3 };
@@ -277,52 +276,37 @@ void startCountUp(float cur, float wk, bool fromZero) {
     gNeedFullDash = true;     // first frame paints the whole dashboard; rest = bands
 }
 
-// Advance one animation frame and draw it. The two cards run in sequence:
-//   1. Current climbs 0..gDurCur (Weekly held at its start value).
-//   2. Current pops; GAP_MS lets the burst be enjoyed (only if it popped).
-//   3. Weekly climbs, then pops.
-// The climb value is kept continuous (no rounding): the % text rounds to an int
-// so the NUMBER still ticks 1% at a time (~10Hz), but the BAR glides per-pixel.
-// Clears gAnimating once the bottom card's pop has finished.
+// Advance one animation frame and draw it. Both cards climb in PARALLEL from
+// t=0 (each over its own gDur), and each pops when it lands. The climb value is
+// continuous (no rounding): the % text rounds to an int so the NUMBER ticks 1%
+// at a time, but the BAR glides per-pixel. Clears gAnimating once both cards'
+// climbs and pops have finished.
 void stepCountUp() {
     uint32_t el = millis() - gAnimStart;
     float popCurI = 0.0f, popWkI = 0.0f;
     bool full = gNeedFullDash;     // first frame full-redraws; the rest push bands
     gNeedFullDash = false;
 
-    // --- 1. Top card (Current) climbs; bottom waits at its start value. ---
-    if (el < gDurCur) {
-        float t = (float)el / gDurCur;
-        gShownCur = gStartCur + (gTgtCur - gStartCur) * t;
-        gShownWk  = gStartWk;
-        drawDashFrame(0.0f, 0.0f, full);
-        return;
-    }
-    gShownCur = gTgtCur;                              // Current landed
-    uint32_t curSince = el - gDurCur;
-    if (gPopCur && curSince < POP_MS)
-        popCurI = 1.0f - (float)curSince / POP_MS;
-
-    // --- 2. Hold the bottom until the top's pop has played + a short gap. ---
-    uint32_t wkDelay = gPopCur ? (POP_MS + GAP_MS) : 0;
-    if (curSince < wkDelay) {
-        gShownWk = gStartWk;
-        drawDashFrame(popCurI, 0.0f, full);
-        return;
+    if (el < gDurCur) {                              // Current climbing
+        gShownCur = gStartCur + (gTgtCur - gStartCur) * ((float)el / gDurCur);
+    } else {                                         // Current landed -> pop
+        gShownCur = gTgtCur;
+        uint32_t since = el - gDurCur;
+        if (gPopCur && since < POP_MS) popCurI = 1.0f - (float)since / POP_MS;
     }
 
-    // --- 3. Bottom card (Weekly) climbs, then pops. ---
-    uint32_t wkSince = curSince - wkDelay;
-    if (wkSince < gDurWk) {
-        float t = (float)wkSince / gDurWk;
-        gShownWk = gStartWk + (gTgtWk - gStartWk) * t;
-    } else {
-        gShownWk = gTgtWk;                            // Weekly landed
-        uint32_t wkPopSince = wkSince - gDurWk;
-        if (gPopWk && wkPopSince < POP_MS)
-            popWkI = 1.0f - (float)wkPopSince / POP_MS;
-        if (wkPopSince >= POP_MS) gAnimating = false;  // everything done
+    if (el < gDurWk) {                               // Weekly climbing
+        gShownWk = gStartWk + (gTgtWk - gStartWk) * ((float)el / gDurWk);
+    } else {                                         // Weekly landed -> pop
+        gShownWk = gTgtWk;
+        uint32_t since = el - gDurWk;
+        if (gPopWk && since < POP_MS) popWkI = 1.0f - (float)since / POP_MS;
     }
+
+    uint32_t endCur = gDurCur + (gPopCur ? POP_MS : 0);
+    uint32_t endWk  = gDurWk  + (gPopWk  ? POP_MS : 0);
+    if (el >= endCur && el >= endWk) gAnimating = false;
+
     drawDashFrame(popCurI, popWkI, full);
 }
 
@@ -669,6 +653,18 @@ void loop() {
                     gLastUsage = gPollResult;        // never had data -> error screen
                 }
                 if (!gAnimating) renderCurrentView();   // anim frames self-draw
+            }
+
+            // NTP usually syncs a few seconds after boot, so the first dashboard
+            // shows "Resets in --". Re-render once the wall clock becomes valid so
+            // the countdown fills in without waiting for the next poll / refresh.
+            if (!gClockValid && time(nullptr) >= 1000000000L) {
+                gClockValid = true;
+                gPendTimeRender = true;
+            }
+            if (gPendTimeRender && !gAnimating && gPage == PAGE_DASH && gLastUsage.ok) {
+                gPendTimeRender = false;
+                renderCurrentView();
             }
 
             // Trigger a poll: Home button (animated) or the periodic interval.
