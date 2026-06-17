@@ -311,12 +311,12 @@ void drawMetricCard(int yc, const char* label, float pct, const String& reset,
     canvas.setFont(&fonts::FreeSansBold18pt7b);
     canvas.setTextDatum(textdatum_t::top_left);
     canvas.setTextColor(rgb(pop > 0 ? lerpColor(T_TITLE, pastel, pop) : T_TITLE));
-    canvas.drawString(buf, cx + 18, yc + 6);
+    canvas.drawString(buf, cx + 18, yc + 8);
 
     drawPill(label, cx + cw - 16, yc + 8);
 
-    // Bar.
-    const int bx = cx + 18, bw = cw - 36, by = yc + 36, bh = 17, r = 8;
+    // Bar — pushed down so the big % has breathing room above it.
+    const int bx = cx + 18, bw = cw - 36, by = yc + 42, bh = 12, r = 6;
     canvas.fillRoundRect(bx, by, bw, bh, r, rgb(T_TRACK));
     int fw = (int)(bw * pct / 100.0f);
     uint32_t fill = (pop > 0) ? lerpColor(barColor, pastel, pop) : barColor;
@@ -329,11 +329,11 @@ void drawMetricCard(int yc, const char* label, float pct, const String& reset,
         drawSparks(sx, by + bh / 2, pop, barColor, pastel);
     }
 
-    // Reset countdown — larger and brighter for readability.
-    canvas.setFont(&fonts::FreeSans12pt7b);
+    // Reset countdown.
+    canvas.setFont(&fonts::FreeSans9pt7b);
     canvas.setTextDatum(textdatum_t::top_left);
     canvas.setTextColor(rgb(0xC8BEDC));
-    canvas.drawString("Resets in " + reset, bx, yc + 58);
+    canvas.drawString("Resets in " + reset, bx, yc + 62);
 }
 }  // namespace
 
