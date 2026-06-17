@@ -220,6 +220,59 @@ void histPush(float a, float b) {
     }
 }
 
+// Limit projection from the window position, not a recent slope. Each window
+// (5h / 7d) resets at a known epoch, so the average pace this window is
+// (used% / time-elapsed-in-window). Extrapolate that pace to the reset:
+//   peak = projected utilization at reset (0..100+, -1 if unknown)
+//   eta  = minutes until 100% IF that happens before the reset, else -1
+// This is honest about the fixed window: a slow 5h climb that won't reach 100%
+// before it rolls over yields eta=-1 (and a peak well under 100), instead of a
+// nonsensical "17h to limit" on a 5-hour window.
+struct Burn { int eta5 = -1, eta7 = -1; int peak5 = -1, peak7 = -1; };
+
+namespace {
+constexpr long WIN_5H = 5L * 3600;          // 5-hour window
+constexpr long WIN_7D = 7L * 24 * 3600;     // weekly (7-day) window
+
+void projectSeries(float util, long resetEpoch, long windowSec, time_t now,
+                   int& eta, int& peak) {
+    eta = -1; peak = -1;
+    if (now < 1000000000L || resetEpoch <= 0) return;   // need NTP + a reset header
+    long remain = resetEpoch - (long)now;
+    if (remain <= 0 || remain > windowSec) return;       // expired / implausible
+    long elapsed = windowSec - remain;
+    if (elapsed < 300) return;                           // <5 min in: too early to trust
+    if (util < 0.5f) { peak = 0; return; }               // basically idle this window
+    float ratePerSec = util / (float)elapsed;            // %/sec average so far
+    float proj = util + ratePerSec * remain;             // projected % at reset
+    peak = (int)(proj + 0.5f);
+    if (proj >= 100.0f) {                                // will hit the cap before reset
+        float secsTo100 = (100.0f - util) / ratePerSec;
+        eta = (int)(secsTo100 / 60.0f + 0.5f);
+        if (eta < 0) eta = 0;
+        if (eta > 99 * 60) eta = 99 * 60;
+    }
+}
+}  // namespace
+
+Burn computeBurn() {
+    Burn b;
+    time_t now = time(nullptr);
+    projectSeries(gLastUsage.util5h, gLastUsage.reset5h, WIN_5H, now, b.eta5, b.peak5);
+    projectSeries(gLastUsage.util7d, gLastUsage.reset7d, WIN_7D, now, b.eta7, b.peak7);
+    return b;
+}
+
+// Compact "1h 20m" / "45m" / "<1m" from whole minutes.
+String fmtEta(int mins) {
+    if (mins < 0) return "--";
+    if (mins < 1) return "<1m";
+    int h = mins / 60, m = mins % 60;
+    if (h >= 24) return String(h / 24) + "d " + String(h % 24) + "h";
+    if (h > 0)   return String(h) + "h " + String(m) + "m";
+    return String(m) + "m";
+}
+
 void pollTaskFn(void*) {
     gPollResult = api::poll(gToken);   // ~1s blocking, off the UI core
     gPollDone = true;
@@ -261,6 +314,16 @@ void drawDashFrame(float curPop, float wkPop,
     d.battery      = power::percent();
     d.charging     = power::charging();
     d.status       = kStatus[gStatusIdx % (sizeof(kStatus) / sizeof(kStatus[0]))];
+    // When a limit is near, the status line turns actionable: a burn-rate ETA
+    // (5h window takes priority -- it's the one users actually hit) replaces the
+    // playful line. Otherwise the playful status stays.
+    {
+        Burn b = computeBurn();
+        if      (gLastUsage.util5h >= 100.0f) d.status = "5h limit reached";
+        else if (b.eta5 >= 0 && b.eta5 <= 120) d.status = "~" + fmtEta(b.eta5) + " to 5h limit";
+        else if (gLastUsage.util7d >= 100.0f) d.status = "7d limit reached";
+        else if (b.eta7 >= 0 && b.eta7 <= 180) d.status = "~" + fmtEta(b.eta7) + " to 7d limit";
+    }
     d.clock        = fmtClock(now);
     d.stale        = gStale;
     d.curPop       = curPop;
@@ -380,7 +443,8 @@ void renderCurrentView() {
         return;
     }
     if (gPage == PAGE_HISTORY) {
-        display::drawHistory(gH5, gH7, gHistCount);
+        Burn b = computeBurn();
+        display::drawHistory(gH5, gH7, gHistCount, b.eta5, b.eta7, b.peak5, b.peak7);
         return;
     }
     if (gLastUsage.ok) {

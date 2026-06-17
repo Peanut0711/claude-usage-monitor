@@ -51,8 +51,13 @@ struct Detail {
 void drawDetail(const Detail& d);
 
 // Usage history mini-graph (two sparklines: 5h orange, 7d lime). Arrays hold
-// `count` samples oldest..newest, each 0..100.
-void drawHistory(const float* h5, const float* h7, int count);
+// `count` samples oldest..newest, each 0..100. Below the graph, a stats footer
+// shows now/max per series plus the limit projection: an ETA to 100% if it's
+// reached before the window resets (etaMin whole minutes, else -1), otherwise
+// the projected utilization at reset (peakPct 0..100+, -1 if unknown).
+void drawHistory(const float* h5, const float* h7, int count,
+                 int eta5min = -1, int eta7min = -1,
+                 int peak5 = -1, int peak7 = -1);
 
 // --- Stage 4 dashboard ------------------------------------------------------
 struct Dashboard {

@@ -216,6 +216,8 @@ constexpr uint32_t T_WK     = 0xC2D74A;  // weekly bar (lime)
 constexpr uint32_t T_PILLBG = 0x463A5E;  // pill background
 constexpr uint32_t T_PILLTX = 0xE9E2F5;  // pill text
 constexpr uint32_t T_GREEN  = 0x7BC86B;  // battery ok
+constexpr uint32_t T_WARN   = 0xE0A24A;  // usage approaching the limit (amber, >=80%)
+constexpr uint32_t T_CRIT   = 0xE5453A;  // usage at/over the limit (red, >=95%)
 
 // Draw a 1-bit bitmap (row-major, MSB first) at integer scale `s` in `color`.
 void drawBits(const uint8_t* d, int w, int h, int x, int y, int s, uint32_t color) {
@@ -282,6 +284,14 @@ uint32_t lerpColor(uint32_t a, uint32_t b, float t) {
     return ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)bl;
 }
 
+// Shift a bar color toward amber (>=80%) then red (>=95%) so a near/over-limit
+// card reads as a warning. Below 80% the series keeps its own hue.
+uint32_t threshColor(uint32_t base, float pct) {
+    if (pct < 80.0f) return base;
+    if (pct < 95.0f) return lerpColor(base, T_WARN, (pct - 80.0f) / 15.0f);
+    return lerpColor(T_WARN, T_CRIT, (pct - 95.0f) / 5.0f);
+}
+
 // A small "pop" of sparks flying out from (x,y). `pop` runs 1 -> 0 as the
 // effect fades: dots start tight + bright at impact, then drift out and shrink.
 // Color is a pastel tint of the card color (not harsh white): pastel at impact,
@@ -307,6 +317,7 @@ void drawSparks(int x, int y, float pop, uint32_t base, uint32_t pastel) {
 void drawCardContent(int yc, float pct, uint32_t barColor, float pop, float glow) {
     if (pct < 0) pct = 0; if (pct > 100) pct = 100;
     const int cx = 12, cw = canvas.width() - 24;
+    barColor = threshColor(barColor, pct);                   // amber/red near the limit
     uint32_t pastel = lerpColor(barColor, 0xFFFFFF, 0.38f);   // flash peak: 38% toward white
 
     // Big percentage — glows toward the card's pastel tone as it lands. Centered
@@ -455,9 +466,39 @@ int plotY(float v, int y0, int h) {
     if (v < 0) v = 0; if (v > 100) v = 100;
     return y0 + (int)(h * (100 - v) / 100);
 }
+
+// Compact "1h 20m" / "45m" / "<1m" / "--" from whole minutes.
+String etaStr(int mins) {
+    if (mins < 0) return "--";
+    if (mins < 1) return "<1m";
+    int h = mins / 60, m = mins % 60;
+    if (h >= 24) return String(h / 24) + "d " + String(h % 24) + "h";
+    if (h > 0)   return String(h) + "h " + String(m) + "m";
+    return String(m) + "m";
+}
+
+// One footer line: "5h  now NN%   <proj>" in `color`. <proj> is the limit
+// projection -- "ETA <t>" if 100% is reached before the reset, else "end NN%"
+// (projected utilization when the window resets), else "end --". (No "max": the
+// window climbs monotonically then clears, so its peak is just `now`.)
+void drawHistStat(const char* tag, const float* v, int count, int eta, int peak,
+                  uint32_t color, int y) {
+    float now = v[count - 1];
+    char proj[24];
+    if (eta >= 0)       snprintf(proj, sizeof(proj), "ETA %s", etaStr(eta).c_str());
+    else if (peak >= 0) snprintf(proj, sizeof(proj), "end %d%%", peak);
+    else                snprintf(proj, sizeof(proj), "end --");
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%s  now %d%%   %s", tag, (int)(now + 0.5f), proj);
+    canvas.setFont(&fonts::FreeSansBold12pt7b);
+    canvas.setTextDatum(textdatum_t::top_center);
+    canvas.setTextColor(rgb(color));
+    canvas.drawString(buf, canvas.width() / 2, y);
+}
 }  // namespace
 
-void drawHistory(const float* h5, const float* h7, int count) {
+void drawHistory(const float* h5, const float* h7, int count,
+                 int eta5min, int eta7min, int peak5, int peak7) {
     drawHeader("History");
 
     // Legend (top-right).
@@ -468,7 +509,8 @@ void drawHistory(const float* h5, const float* h7, int count) {
     canvas.setTextColor(rgb(T_WK));
     canvas.drawString("7d", canvas.width() - 22, 18);
 
-    const int x0 = 32, y0 = 58, w = canvas.width() - 52, h = 138;
+    // Graph shrunk to the top ~2/3 to make room for a stats footer below.
+    const int x0 = 32, y0 = 48, w = canvas.width() - 52, h = 100;
 
     // Gridlines + % labels at 0 / 50 / 100.
     canvas.setFont(&fonts::Font0);
@@ -500,6 +542,11 @@ void drawHistory(const float* h5, const float* h7, int count) {
         canvas.drawLine(xa, a5, xb, b5, rgb(T_CUR));
         canvas.drawLine(xa, a5 + 1, xb, b5 + 1, rgb(T_CUR));
     }
+
+    // Stats footer: now/max + limit projection (ETA or end %), one 12pt line
+    // per series.
+    drawHistStat("5h", h5, count, eta5min, peak5, T_CUR, 162);
+    drawHistStat("7d", h7, count, eta7min, peak7, T_WK,  192);
     present();
 }
 
