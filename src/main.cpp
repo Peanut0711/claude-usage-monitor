@@ -683,7 +683,9 @@ void loop() {
             }
 
             // Trigger a poll: Home button (animated) or the periodic interval.
-            if (homeFired) {
+            // Ignore Home while the count-up is still playing -> no jarring instant
+            // re-refresh the moment the animation ends (release + press again to refresh).
+            if (homeFired && !gAnimating) {
                 requestPoll(true);
                 gLastPoll = millis();
             } else if (!gPollRunning && millis() - gLastPoll >= CUM_POLL_INTERVAL_MS) {
@@ -713,7 +715,7 @@ void loop() {
                 display::drawRefreshAnim(gAnimFrame++);
                 delay(120);                          // slower bob
             } else {
-                delay(50);
+                delay(16);   // idle ~60Hz: poll the Home button often so short taps register
             }
             break;
         }
