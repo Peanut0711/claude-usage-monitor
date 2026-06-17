@@ -6,3 +6,7 @@ src/secrets.h
 .vscode/ipch/
 *.bin
 *.elf
+
+# Python cache
+tools/__pycache__/
+*.pyc
