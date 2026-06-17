@@ -1,6 +1,6 @@
 # 진행 상황 / 다음 작업 핸드오프
 
-> 마지막 업데이트: 2026-06-16. 다음 세션에서 이 문서부터 읽고 이어서 진행하면 됩니다.
+> 마지막 업데이트: 2026-06-17. 다음 세션에서 이 문서부터 읽고 이어서 진행하면 됩니다.
 
 ## ✅ 이번 세션에서 끝낸 것 (Stage 1)
 
@@ -133,6 +133,64 @@ Anthropic API 폴링 + rate-limit 헤더 파싱 + 대시보드까지 구현·검
 7. ✅ **백라이트 on/off 토글** — **전면 동그라미 = CST226SE Home 버튼**
    (`setHomeButtonCallback`)으로 처리. 한 번 누름=한 번 토글(이벤트 끊김>300ms로
    release 판정해 re-arm). 꺼지면 Running 루프 작업 skip, Home 재누름으로 깨움.
+8. ✅ **사용률 카운트업 애니메이션** — 폴 결과가 바뀌면 바/% 가 RPG EXP처럼 차오르고
+   도착 시 살짝 "푱". 상세·튜닝·변경 이력은 아래 **[카운트업 애니메이션]** 섹션 참조.
+
+### 카운트업 애니메이션 (튜닝 & 변경 이력 — 수정 시 여기서부터 대화)
+
+> 세밀한 수정이 계속될 영역. **수정할 때마다 아래 "변경 이력" 표에 한 줄 추가**하고,
+> "현재 파라미터" 값을 갱신할 것. 이 섹션이 수정 논의의 단일 기준점.
+
+**개념**: 새 폴 결과 도착 시 즉시 갈아끼우지 않고, 화면에 떠 있던 값(`gShownCur/gShownWk`)
+에서 새 값까지 **1%씩 똑똑 올라감**(정수 스텝, RPG EXP 카운터 느낌, **오버슛 없음/선형**)
+→ 도착하면 올라간 카드에만 **작은 스파크 + % 흰빛 플래시**. 값이 내려가면(리셋) 조용히
+1%씩 카운트다운(스파크 없음). 전부 **논블로킹**: 메인 루프가 한 프레임씩 그림.
+**길이는 변화량에 비례**(`steps×STEP_MS`): 작은 변화는 짧게, 큰 점프(첫 폴 0→N)는 길게
+하되 `MAX_MS`로 상한. 두 카드는 더 큰 변화 기준으로 **동시에 착지**.
+
+**관련 파일 / 심볼**:
+- `src/main.cpp`
+  - 상태: `gShownCur/gShownWk`(현재 표시값), `gStartCur/gStartWk`(시작값),
+    `gTgtCur/gTgtWk`(목표값), `gAnimating`, `gPopCur/gPopWk`(증가한 카드만 pop), `gAnimStart`.
+  - 상수: `STEP_MS`(1%당 시간), `MAX_MS`(큰 점프 상한), `POP_MS`(착지 후 페이드).
+    런타임: `gAnimDur`(이번 climb 길이 = steps×STEP_MS, 상한 MAX_MS).
+  - 함수: `startCountUp(cur,wk)`(시작 + `gAnimDur` 계산),
+    `stepCountUp()`(한 프레임 전진+그리기, 정수 스냅·선형, 끝나면 `gAnimating=false`),
+    `finishCountUp()`(목표로 즉시 스냅 — 페이지 이탈 시), `drawDashFrame(curPop,wkPop)`.
+  - 구동 위치: Running 루프 하단 프레임 페이싱 블록 — `gAnimating && PAGE_DASH`일 때
+    `stepCountUp(); delay(8);` 우선. 폴 소비부에서 `startCountUp` 호출(다른 페이지면 스냅).
+- `src/display/DisplayHAL.cpp`
+  - `drawMetricCard(..., float pop=0)`: pop>0이면 % 흰빛 플래시 + 바 흰빛 블렌드 + 스파크.
+  - `drawSparks(x,y,pop,color)`: 바 끝 leading edge에서 점 6개가 퍼지며 페이드.
+  - `lerpColor(a,b,t)`: 색 보간 헬퍼.
+  - `Dashboard` 구조체(`DisplayHAL.h`)에 `curPop`, `wkPop`(0..1) 필드.
+
+**현재 파라미터 (v3, 2026-06-17)**:
+| 항목 | 값 | 위치 |
+|------|----|----|
+| 1%당 시간 | `STEP_MS = 180` ms | main.cpp |
+| 큰 점프 상한 | `MAX_MS = 3000` ms | main.cpp |
+| 착지 pop 페이드 | `POP_MS = 600` ms | main.cpp |
+| 이징 | **선형(오버슛 없음)**, 정수 1% 스냅 | stepCountUp |
+| 예) +9% 변화 | 9×180 = 1.62s + pop 0.3s ≈ 1.9s | — |
+| 프레임 간 delay | `delay(8)` (카운트업 중) | main.cpp 루프 |
+| pop 발동 조건 | 목표 > 시작 + 0.5% (증가한 카드만) | startCountUp |
+| 스파크 개수 | 6 | drawSparks `dx/dy[]` |
+| 스파크 비행거리 | `(1-pop)*15 + 2` px | drawSparks |
+| 스파크 반경 | `3*pop + 1` px | drawSparks |
+| pop 색 | **파스텔** = `lerpColor(barColor, 흰색, 0.6)` (카드색+흰색) | drawMetricCard |
+| % 플래시 | T_TITLE→pastel `pop` | drawMetricCard |
+| 바 플래시 | barColor→pastel `pop` | drawMetricCard |
+| 스파크 색 | barColor→pastel `pop` (착지때 파스텔, 페이드때 원색) | drawSparks |
+
+**변경 이력**:
+| 날짜 | 변경 | 사유 |
+|------|------|------|
+| 2026-06-17 | v1 최초 구현(이징+오버슛+착지 플래시+스파크6, 논블로킹). 빌드+COM6 플래싱 완료. | 사용자 요청: RPG EXP식 성장감/도파민, "작은 스파크" 범위 |
+| 2026-06-17 | v2: 총 길이 ~1.07s→**1.5s** (`ANIM_MS` 750→1200, `POP_MS` 320→300). | 1초는 너무 짧다는 피드백 |
+| 2026-06-17 | v3: **오버슛 제거**(선형) + **1%씩 정수 스텝** 방식으로 전환. 고정시간 `ANIM_MS` 폐기 → `STEP_MS=180`/% (변화량 비례, `MAX_MS=3000` 상한). | 오버슛이 보기 불편(11~12 갔다 복귀), 변화 작으니 1% 틱이 재밌겠다는 의견. "성장 애니에 올인" |
+| 2026-06-17 | v4: 착지 푱 페이드 `POP_MS` 300→**600ms**. | 300ms는 너무 짧다는 피드백 |
+| 2026-06-17 | v5: pop 색을 순백색→**카드색 파스텔**(barColor+흰색 0.6)로. %·바·스파크 전부 적용. | 순백색은 허접; 상단 주황/하단 형광 톤에 맞춘 파스텔 요청 |
 
 ### 하드웨어 메모 (확정)
 - **터치는 I²C**(CST226SE, SDA5/SCL6, 0x5A, RST13). 핀맵 이미지의 "TOUCH=SPI"는 오류.
@@ -143,6 +201,21 @@ Anthropic API 폴링 + rate-limit 헤더 파싱 + 대시보드까지 구현·검
 
 ### Stage 4 남은 선택지
 - 둥근 폰트(B 정통: Baloo TTF→폰트헤더 임베드), 화면 페이지 전환(상세/네트워크/히스토리).
+
+## ✅ 선물용 온보딩 9.1 / 9.2 — 구현·빌드·플래싱 완료 (2026-06-17)
+
+TODO.md 섹션 9(친구 선물용 초기 설정 간소화) 중 9.1·9.2 완료. 상세는 TODO.md 참조.
+- **9.1 토큰 즉시 검증**: `handleSave`에서 저장 전 **AP+STA 동시모드**로 입력 WiFi 실접속
+  (`net::apStaConnect`, 폰은 AP 유지) → `api::poll`로 토큰 검증(200/400=OK, 401=무효,
+  ≤0=도달불가). 실패 사유별 스타일 결과 페이지. 통과해야 provision+리부트.
+  상수 `CUM_VERIFY_WIFI_TIMEOUT_MS`(12s). ⚠️ STA 접속 시 AP 채널 이동(CSA)으로 폰이
+  잠깐 끊겼다 재접속 — 드물게 실패 결과 페이지 누락 가능(성공 시 어차피 리부트).
+- **9.2 스캔 드롭다운 + 캡티브 팝업**: `net::scanNetworks()`로 주변 2.4GHz 목록을
+  셋업 폼 `<select>`에 주입(`portal::scanNetworks`, AP 올리기 전 스캔, `enterSetup`).
+  드롭다운 선택이 SSID 입력칸 채움(숨김/수동도 가능). setup `onNotFound`→302
+  리다이렉트(`handleCaptive`)로 OS 캡티브 창 자동 팝업.
+- 파일: `src/net/{Net,Portal}.*`, `src/config.h`. **남은 일**: 실기 E2E(폰으로 AP 접속 →
+  드롭다운/토큰 검증/캡티브 팝업 동작 확인). 9.3(QR+안내문)·9.4(PIN리스)는 미구현.
 
 ## ⏭️ 이후 단계
 

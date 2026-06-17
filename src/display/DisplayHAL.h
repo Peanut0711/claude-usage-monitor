@@ -65,6 +65,8 @@ struct Dashboard {
     bool   charging     = true; // on USB / charging
     String status;              // playful footer line
     bool   stale        = false; // last poll failed; showing previous data
+    float  curPop       = 0;    // landing-pop intensity 0..1 for the Current card
+    float  wkPop        = 0;    // landing-pop intensity 0..1 for the Weekly card
 };
 
 // Full themed dashboard: mascot, title, WiFi + battery, two colored bars with

@@ -21,6 +21,20 @@ IPAddress startAP();
 // an IP is obtained.
 bool connectMulti(const String ssids[], const String passwords[], int count);
 
+// Scan nearby networks for the setup dropdown. This chip is 2.4GHz-only, so
+// every result is a band the device can actually join. Fills `ssids` with up
+// to maxN unique, non-hidden names; returns the count. Call before startAP()
+// (it switches to STA briefly).
+int scanNetworks(String ssids[], int maxN);
+
+// Bring up STA alongside the running SoftAP to verify credentials during setup,
+// so the portal client (the phone) stays associated to the AP. Returns true
+// once the STA link obtains an IP within `timeoutMs`.
+bool apStaConnect(const String& ssid, const String& pass, uint32_t timeoutMs);
+
+// Tear down the verify STA link, returning to AP-only.
+void apStaDisconnect();
+
 bool      isConnected();
 IPAddress localIP();
 int       rssi();           // dBm, valid when connected

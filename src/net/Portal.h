@@ -18,6 +18,10 @@ namespace portal {
 
 enum class Event { None, Provisioned, Unlocked };
 
+// Scan nearby networks to populate the setup dropdown. Call once before
+// beginSetup() (and before the SoftAP is up, so the scan doesn't disturb it).
+void scanNetworks();
+
 // Start the SoftAP captive portal with the setup form.
 void beginSetup();
 

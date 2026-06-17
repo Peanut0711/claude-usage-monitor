@@ -27,10 +27,15 @@
 #define CUM_PORTAL_PORT      80
 #define CUM_DNS_PORT         53
 #define CUM_AP_IP            192, 168, 4, 1 // captive-portal landing IP
+#define CUM_SCAN_MAX         16             // SSIDs shown in the setup dropdown
 
 // --- WiFi (station) ---------------------------------------------------------
 #define CUM_WIFI_CONNECT_TIMEOUT_MS  20000  // give up + fall back to setup
 #define CUM_WIFI_RETRY_MS            500
+// Pre-commit verify (setup portal): how long to wait for the STA link to come
+// up while validating the entered WiFi + token. Kept well under the browser's
+// POST timeout so the result page still reaches the phone.
+#define CUM_VERIFY_WIFI_TIMEOUT_MS   12000
 
 // --- Credentials / PIN ------------------------------------------------------
 #define CUM_PIN_LEN          4              // exact digits required

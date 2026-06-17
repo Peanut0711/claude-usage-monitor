@@ -148,6 +148,24 @@ bool          gPollAnimate = false;
 int           gAnimFrame   = 0;
 bool          gStale       = false;  // last poll failed; showing previous data
 
+// --- Count-up animation (dashboard) -----------------------------------------
+// On a fresh poll the bars/% ease from the previously shown values up to the
+// new ones (RPG "EXP gain" feel), overshoot slightly, then a small spark pops
+// at the bar's edge. Driven a frame at a time from the loop (non-blocking).
+float    gShownCur = 0, gShownWk = 0;   // values currently on screen
+float    gStartCur = 0, gStartWk = 0;   // where this animation began
+float    gTgtCur   = 0, gTgtWk   = 0;   // where it's heading
+bool     gAnimating = false;
+bool     gPopCur = false, gPopWk = false;  // pop only the card(s) that grew
+uint32_t gAnimStart = 0;
+uint32_t gAnimDur   = 0;                 // this run's climb length; scales with delta
+// Climb ticks one whole % at a time (RPG counter feel), no overshoot. Duration
+// = (% change) * STEP_MS, so small changes are quick and a big jump still feels
+// like real growth — capped so the first poll (0 -> N) doesn't drag.
+constexpr uint32_t STEP_MS = 180;        // time per 1% tick
+constexpr uint32_t MAX_MS  = 3000;       // cap for a large jump
+constexpr uint32_t POP_MS  = 600;        // spark/flash fade after landing
+
 // IO12 cycles pages: dashboard -> detail -> history.
 enum { PAGE_DASH = 0, PAGE_DETAIL = 1, PAGE_HISTORY = 2, PAGE_COUNT = 3 };
 int           gPage = PAGE_DASH;
@@ -187,6 +205,63 @@ String fmtUptime() {
     return String(m) + "m " + String(s % 60) + "s";
 }
 
+// Draw the dashboard from the currently-shown (animated) values, with optional
+// landing-pop intensity per card.
+void drawDashFrame(float curPop, float wkPop) {
+    time_t now = time(nullptr);
+    display::Dashboard d;
+    d.current      = gShownCur;
+    d.currentReset = fmtCountdown(gLastUsage.reset5h, now);
+    d.weekly       = gShownWk;
+    d.weeklyReset  = fmtCountdown(gLastUsage.reset7d, now);
+    d.rssi         = net::rssi();
+    d.battery      = power::percent();
+    d.charging     = power::charging();
+    d.status       = kStatus[gStatusIdx % (sizeof(kStatus) / sizeof(kStatus[0]))];
+    d.stale        = gStale;
+    d.curPop       = curPop;
+    d.wkPop        = wkPop;
+    display::drawDashboard(d);
+}
+
+// Begin a count-up from the on-screen values to the new poll values.
+void startCountUp(float cur, float wk) {
+    gStartCur = gShownCur; gStartWk = gShownWk;
+    gTgtCur = cur; gTgtWk = wk;
+    gPopCur = (cur > gStartCur + 0.5f);   // only pop a card that actually grew
+    gPopWk  = (wk  > gStartWk  + 0.5f);
+    // Duration follows the larger of the two changes so both cards land together.
+    int steps = (int)roundf(fmaxf(fabsf(cur - gStartCur), fabsf(wk - gStartWk)));
+    gAnimDur = (uint32_t)steps * STEP_MS;
+    if (gAnimDur > MAX_MS) gAnimDur = MAX_MS;
+    if (gAnimDur == 0)     gAnimDur = 1;  // no change -> finish immediately
+    gAnimStart = millis();
+    gAnimating = true;
+}
+
+// Advance one animation frame and draw it. Clears gAnimating when finished.
+void stepCountUp() {
+    uint32_t el = millis() - gAnimStart;
+    float popI = 0.0f;
+    if (el < gAnimDur) {                         // climbing 1% at a time (linear)
+        float t = (float)el / gAnimDur;
+        gShownCur = floorf(gStartCur + (gTgtCur - gStartCur) * t + 0.5f);
+        gShownWk  = floorf(gStartWk  + (gTgtWk  - gStartWk ) * t + 0.5f);
+    } else if ((gPopCur || gPopWk) && el < gAnimDur + POP_MS) {  // landed: pop
+        gShownCur = gTgtCur; gShownWk = gTgtWk;
+        popI = 1.0f - (float)(el - gAnimDur) / POP_MS;
+    } else {                                     // done
+        gShownCur = gTgtCur; gShownWk = gTgtWk;
+        gAnimating = false;
+    }
+    drawDashFrame(gPopCur ? popI : 0.0f, gPopWk ? popI : 0.0f);
+}
+
+// Snap the animation straight to its target (used when leaving the dashboard).
+void finishCountUp() {
+    gShownCur = gTgtCur; gShownWk = gTgtWk; gAnimating = false;
+}
+
 // Draw whichever page is active from the last poll result + live sensors.
 void renderCurrentView() {
     time_t now = time(nullptr);
@@ -208,17 +283,7 @@ void renderCurrentView() {
         return;
     }
     if (gLastUsage.ok) {
-        display::Dashboard d;
-        d.current      = gLastUsage.util5h;
-        d.currentReset = fmtCountdown(gLastUsage.reset5h, now);
-        d.weekly       = gLastUsage.util7d;
-        d.weeklyReset  = fmtCountdown(gLastUsage.reset7d, now);
-        d.rssi         = net::rssi();
-        d.battery      = power::percent();
-        d.charging     = power::charging();
-        d.status       = kStatus[gStatusIdx % (sizeof(kStatus) / sizeof(kStatus[0]))];
-        d.stale        = gStale;
-        display::drawDashboard(d);
+        drawDashFrame(0.0f, 0.0f);              // steady state (no pop)
     } else {
         const char* note = gLastUsage.httpCode == 401 ? "Auth rejected - check token"
                          : gLastUsage.httpCode <= 0   ? "Network / TLS error"
@@ -229,6 +294,7 @@ void renderCurrentView() {
 
 void enterSetup() {
     gState = State::Setup;
+    portal::scanNetworks();             // cache nearby SSIDs before the AP goes up
     IPAddress ip = net::startAP();
     portal::beginSetup();
     display::drawProvisioning(net::apSsid(), CUM_AP_PASSWORD, ip.toString());
@@ -449,7 +515,11 @@ void loop() {
                 armed = true;
             }
 
-            if (io12) { gPage = (gPage + 1) % PAGE_COUNT; renderCurrentView(); }
+            if (io12) {
+                gPage = (gPage + 1) % PAGE_COUNT;
+                if (gAnimating) finishCountUp();     // don't carry an anim across pages
+                renderCurrentView();
+            }
 
             // Brightness: drag vertically on the LEFT edge strip (top=bright).
             if (touching && tx < 48) {
@@ -468,12 +538,18 @@ void loop() {
                     gStale = false;
                     gStatusIdx++;
                     histPush(gPollResult.util5h, gPollResult.util7d);
+                    if (gPage == PAGE_DASH) {
+                        startCountUp(gPollResult.util5h, gPollResult.util7d);
+                    } else {                         // off-page: just snap, no anim
+                        gShownCur = gPollResult.util5h;
+                        gShownWk  = gPollResult.util7d;
+                    }
                 } else if (gLastUsage.ok) {
                     gStale = true;                   // keep showing prior data
                 } else {
                     gLastUsage = gPollResult;        // never had data -> error screen
                 }
-                renderCurrentView();
+                if (!gAnimating) renderCurrentView();   // anim frames self-draw
             }
 
             // Trigger a poll: Home button (animated) or the periodic interval.
@@ -485,8 +561,12 @@ void loop() {
                 gLastPoll = millis();
             }
 
-            // Animate while an animated poll is running (skip on the detail page).
-            if (gPollRunning && gPollAnimate && gPage == PAGE_DASH) {
+            // Frame pacing. Count-up takes priority (it draws each frame), then
+            // the refresh bob while a poll is in flight, else idle.
+            if (gAnimating && gPage == PAGE_DASH) {
+                stepCountUp();
+                delay(8);                            // ~fast frames during count-up
+            } else if (gPollRunning && gPollAnimate && gPage == PAGE_DASH) {
                 display::drawRefreshAnim(gAnimFrame++);
                 delay(120);                          // slower bob
             } else {

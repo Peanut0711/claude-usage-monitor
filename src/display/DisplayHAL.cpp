@@ -243,18 +243,50 @@ int drawPill(const char* text, int rightX, int y) {
     return px;
 }
 
+// Blend two 0xRRGGBB colors; t=0 -> a, t=1 -> b.
+uint32_t lerpColor(uint32_t a, uint32_t b, float t) {
+    if (t < 0) t = 0; if (t > 1) t = 1;
+    int ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, ab = a & 0xFF;
+    int br = (b >> 16) & 0xFF, bg = (b >> 8) & 0xFF, bb = b & 0xFF;
+    int r = ar + (int)((br - ar) * t);
+    int g = ag + (int)((bg - ag) * t);
+    int bl = ab + (int)((bb - ab) * t);
+    return ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)bl;
+}
+
+// A small "pop" of sparks flying out from (x,y). `pop` runs 1 -> 0 as the
+// effect fades: dots start tight + bright at impact, then drift out and shrink.
+// Color is a pastel tint of the card color (not harsh white): pastel at impact,
+// settling back toward the bar color as it fades.
+void drawSparks(int x, int y, float pop, uint32_t base, uint32_t pastel) {
+    static const int8_t dx[] = { 5, 4, 0, -4, -5, 3 };
+    static const int8_t dy[] = { 0, -4, -5, -4, 0, 4 };
+    float out = (1.0f - pop) * 15.0f + 2.0f;     // distance grows as it fades
+    int   rad = (int)(3.0f * pop) + 1;           // radius shrinks as it fades
+    uint32_t c = lerpColor(base, pastel, pop);
+    for (int i = 0; i < 6; i++) {
+        int px = x + (int)(dx[i] * out / 5.0f);
+        int py = y + (int)(dy[i] * out / 5.0f);
+        canvas.fillCircle(px, py, rad, rgb(c));
+    }
+}
+
 void drawMetricCard(int yc, const char* label, float pct, const String& reset,
-                    uint32_t barColor) {
+                    uint32_t barColor, float pop = 0.0f) {
     if (pct < 0) pct = 0; if (pct > 100) pct = 100;
     const int cx = 12, cw = canvas.width() - 24, ch = 82;
     canvas.fillRoundRect(cx, yc, cw, ch, 10, rgb(T_CARD));
 
-    // Big percentage.
+    // Landing pop uses a pastel tint of THIS card's color (orange / lime mixed
+    // with white) instead of harsh pure white.
+    uint32_t pastel = lerpColor(barColor, 0xFFFFFF, 0.6f);
+
+    // Big percentage — glows toward the card's pastel tone as it lands.
     char buf[8];
     snprintf(buf, sizeof(buf), "%d%%", (int)(pct + 0.5f));
     canvas.setFont(&fonts::FreeSansBold18pt7b);
     canvas.setTextDatum(textdatum_t::top_left);
-    canvas.setTextColor(rgb(T_TITLE));
+    canvas.setTextColor(rgb(pop > 0 ? lerpColor(T_TITLE, pastel, pop) : T_TITLE));
     canvas.drawString(buf, cx + 18, yc + 6);
 
     drawPill(label, cx + cw - 16, yc + 8);
@@ -263,7 +295,15 @@ void drawMetricCard(int yc, const char* label, float pct, const String& reset,
     const int bx = cx + 18, bw = cw - 36, by = yc + 36, bh = 17, r = 8;
     canvas.fillRoundRect(bx, by, bw, bh, r, rgb(T_TRACK));
     int fw = (int)(bw * pct / 100.0f);
-    if (fw > 0) canvas.fillRoundRect(bx, by, fw < bh ? bh : fw, bh, r, rgb(barColor));
+    uint32_t fill = (pop > 0) ? lerpColor(barColor, pastel, pop) : barColor;
+    int filled = fw < bh ? bh : fw;
+    if (fw > 0) canvas.fillRoundRect(bx, by, filled, bh, r, rgb(fill));
+
+    // Little spark burst at the bar's leading edge as it lands.
+    if (pop > 0.0f) {
+        int sx = bx + filled; if (sx > bx + bw) sx = bx + bw;
+        drawSparks(sx, by + bh / 2, pop, barColor, pastel);
+    }
 
     // Reset countdown — larger and brighter for readability.
     canvas.setFont(&fonts::FreeSans12pt7b);
@@ -289,8 +329,8 @@ void drawDashboard(const Dashboard& d) {
         canvas.fillCircle(canvas.width() - 90, 16, 4, rgb(T_CUR));
 
     // ---- Cards ------------------------------------------------------------
-    drawMetricCard(34,  "Current", d.current, d.currentReset, T_CUR);
-    drawMetricCard(118, "Weekly",  d.weekly,  d.weeklyReset,  T_WK);
+    drawMetricCard(34,  "Current", d.current, d.currentReset, T_CUR, d.curPop);
+    drawMetricCard(118, "Weekly",  d.weekly,  d.weeklyReset,  T_WK,  d.wkPop);
 
     // ---- Status line ------------------------------------------------------
     canvas.setFont(&fonts::FreeSansBold9pt7b);

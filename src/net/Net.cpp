@@ -52,6 +52,40 @@ bool connectMulti(const String ssids[], const String passwords[], int count) {
     return connected;
 }
 
+int scanNetworks(String ssids[], int maxN) {
+    WiFi.mode(WIFI_STA);
+    int found = WiFi.scanNetworks();         // blocking, ~2-4 s
+    if (found < 0) found = 0;
+    int out = 0;
+    for (int i = 0; i < found && out < maxN; i++) {
+        String s = WiFi.SSID(i);
+        if (s.length() == 0) continue;       // skip hidden networks
+        bool dup = false;
+        for (int j = 0; j < out; j++) if (ssids[j] == s) { dup = true; break; }
+        if (!dup) ssids[out++] = s;
+    }
+    WiFi.scanDelete();
+    return out;
+}
+
+bool apStaConnect(const String& ssid, const String& pass, uint32_t timeoutMs) {
+    WiFi.mode(WIFI_AP_STA);                   // keep the AP up for the phone
+    WiFi.begin(ssid.c_str(), pass.c_str());
+    capTxPower();
+    uint32_t start = millis();
+    while (millis() - start < timeoutMs) {
+        if (WiFi.status() == WL_CONNECTED) { capTxPower(); return true; }
+        delay(200);
+    }
+    return false;
+}
+
+void apStaDisconnect() {
+    WiFi.disconnect(false, true);             // drop STA, clear its config
+    WiFi.mode(WIFI_AP);
+    capTxPower();
+}
+
 bool      isConnected() { return WiFi.status() == WL_CONNECTED; }
 IPAddress localIP()     { return WiFi.localIP(); }
 int       rssi()        { return WiFi.RSSI(); }
