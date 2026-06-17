@@ -70,6 +70,7 @@
 #define CUM_NVS_TOKEN_BLOB   "token"        // sealed OAuth token (PIN or device key)
 #define CUM_NVS_PIN_FAILS    "pinfails"     // uint8 consecutive failures
 #define CUM_NVS_TOKEN_PINNED "tokpin"       // uint8: 1 = token sealed under PIN key
+#define CUM_NVS_LAST_WIFI    "lastwifi"     // uint8 index of last-connected network (0xFF=none)
 
 // Max WiFi networks remembered for auto-connect (e.g. home + office).
 #define CUM_WIFI_MAX         3

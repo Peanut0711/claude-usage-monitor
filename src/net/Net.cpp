@@ -37,16 +37,32 @@ IPAddress startAP() {
     return WiFi.softAPIP();
 }
 
-bool connectMulti(const String ssids[], const String passwords[], int count) {
+bool connectMulti(const String ssids[], const String passwords[], int count,
+                  int preferredIdx) {
     if (count <= 0) return false;
+    WiFi.mode(WIFI_STA);
 
+    // Fast path: connect straight to the last-good network. WiFi.begin() does a
+    // targeted probe (connects as soon as that SSID is found) instead of
+    // WiFiMulti's full all-channel scan + RSSI sort, so a normal boot at the
+    // usual location skips ~2-4 s of scanning.
+    if (preferredIdx >= 0 && preferredIdx < count) {
+        WiFi.begin(ssids[preferredIdx].c_str(), passwords[preferredIdx].c_str());
+        uint32_t start = millis();
+        while (millis() - start < 5000) {
+            if (WiFi.status() == WL_CONNECTED) { capTxPower(); return true; }
+            delay(150);
+        }
+        WiFi.disconnect(true);   // not in range here -> clear it before the scan
+        delay(50);
+    }
+
+    // Fallback: scan all + connect the strongest known AP (covers a location
+    // change, e.g. home <-> office, where the preferred network is absent).
     WiFiMulti wm;
     for (int i = 0; i < count; i++) {
         wm.addAP(ssids[i].c_str(), passwords[i].c_str());
     }
-    WiFi.mode(WIFI_STA);
-
-    // WiFiMulti scans and connects to the strongest known network.
     bool connected = (wm.run(CUM_WIFI_CONNECT_TIMEOUT_MS) == WL_CONNECTED);
     if (connected) capTxPower();
     return connected;

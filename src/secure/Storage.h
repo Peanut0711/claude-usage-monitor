@@ -41,6 +41,11 @@ void    setPinFails(uint8_t value);
 uint8_t wifiCount();
 void    setWifiCount(uint8_t value);
 
+// Index of the network that last connected, so the next boot can try it
+// directly (no full scan). 0xFF = none recorded yet.
+uint8_t lastWifi();
+void    setLastWifi(uint8_t index);
+
 // Erase every key in the namespace (factory reset back to setup mode).
 void wipeAll();
 

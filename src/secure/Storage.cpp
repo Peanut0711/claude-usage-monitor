@@ -86,6 +86,16 @@ void setWifiCount(uint8_t value) {
     s.prefs.putUChar(CUM_NVS_WIFI_COUNT, value);
 }
 
+uint8_t lastWifi() {
+    Scoped s(true);
+    return s.prefs.getUChar(CUM_NVS_LAST_WIFI, 0xFF);
+}
+
+void setLastWifi(uint8_t index) {
+    Scoped s(false);
+    s.prefs.putUChar(CUM_NVS_LAST_WIFI, index);
+}
+
 void wipeAll() {
     Scoped s(false);
     s.prefs.clear();

@@ -16,10 +16,13 @@ String apSsid();
 // Bring up the SoftAP used by the setup captive portal. Returns the AP IP.
 IPAddress startAP();
 
-// Connect to the strongest reachable network among the given list (home /
-// office / ...). Blocks up to CUM_WIFI_CONNECT_TIMEOUT_MS. Returns true once
-// an IP is obtained.
-bool connectMulti(const String ssids[], const String passwords[], int count);
+// Connect among the given list (home / office / ...). If preferredIdx is valid,
+// try that network directly first (no scan) for a fast reconnect at the usual
+// location, then fall back to a strongest-of-all scan. Blocks up to ~5 s on the
+// fast path plus CUM_WIFI_CONNECT_TIMEOUT_MS on the scan. Returns true once an
+// IP is obtained. Pass preferredIdx < 0 to scan straight away.
+bool connectMulti(const String ssids[], const String passwords[], int count,
+                  int preferredIdx = -1);
 
 // Scan nearby networks for the setup dropdown. This chip is 2.4GHz-only, so
 // every result is a band the device can actually join. Fills `ssids` with up

@@ -19,6 +19,7 @@
 #include "net/Portal.h"
 #include "power/Power.h"
 #include "secure/CredentialStore.h"
+#include "secure/Storage.h"
 
 namespace {
 
@@ -132,23 +133,20 @@ bool          gBootLoading  = true;
 bool factoryResetRequested() {
     pinMode(TDS3_PIN_BTN_IO16, INPUT_PULLUP);
     constexpr uint32_t HOLD_MS = 1500;            // hold IO16 this long to reset
-    uint32_t start = millis();
-    gBootFrame = 0;
-    while (millis() - start < 2500) {
-        if (io16Down()) {                         // reveal the reset bar only on press
-            uint32_t held = millis();
-            while (io16Down()) {
-                uint32_t dt = millis() - held;
-                if (dt >= HOLD_MS) return true;   // held long enough -> reset
-                display::drawResetHold((float)dt / HOLD_MS);
-                delay(20);
-            }
-            // released early -> the loop resumes the busy animation below
-        }
-        display::drawBootBusy(gBootFrame++);      // bob + loading bar while waiting
+    // The reset gesture is "hold IO16 while powering on", so the button is
+    // already down by the time we reach here. If it isn't, skip the wait
+    // entirely (saves ~2.5 s on every normal boot). delay() lets the pull-up
+    // settle before the first read.
+    delay(20);
+    if (!io16Down()) return false;
+    uint32_t held = millis();
+    while (io16Down()) {
+        uint32_t dt = millis() - held;
+        if (dt >= HOLD_MS) return true;           // held long enough -> reset
+        display::drawResetHold((float)dt / HOLD_MS);
         delay(20);
     }
-    return false;
+    return false;                                 // released before the hold completed
 }
 
 const char* const kStatus[] = {
@@ -473,12 +471,13 @@ void bootAnimTaskFn(void*) {
 
 // net::connectMulti() blocks on wm.run() for several seconds; run the boot
 // animation on the other core meanwhile so the screen doesn't freeze.
-bool connectWithAnim(const String ssids[], const String passwords[], int n) {
+bool connectWithAnim(const String ssids[], const String passwords[], int n,
+                     int preferredIdx) {
     gBootAnimDone = false;
     gBootAnimRun  = true;
     xTaskCreatePinnedToCore(bootAnimTaskFn, "bootanim", 8192, nullptr, 1, nullptr, 0);
 
-    bool ok = net::connectMulti(ssids, passwords, n);
+    bool ok = net::connectMulti(ssids, passwords, n, preferredIdx);
 
     // Stop the task and wait for its final frame to finish before the main core
     // draws again (only one core may touch the shared canvas at a time).
@@ -528,12 +527,18 @@ void setup() {
     // Provisioned: load all remembered networks and join the strongest.
     String ssids[CUM_WIFI_MAX], passwords[CUM_WIFI_MAX];
     int n = credentials::loadWifiList(ssids, passwords, CUM_WIFI_MAX);
-    if (n == 0 || !connectWithAnim(ssids, passwords, n)) {
+    int pref = storage::lastWifi();          // 0xFF when nothing recorded yet
+    if (pref >= n) pref = -1;                 // stale/absent index -> just scan
+    if (n == 0 || !connectWithAnim(ssids, passwords, n, pref)) {
         Serial.println("[wifi] connect failed -> setup mode");
         enterSetup();
         return;
     }
     gSsid = net::ssid();
+    // Remember which network connected so the next boot tries it first (no scan).
+    for (int i = 0; i < n; i++) {
+        if (ssids[i] == gSsid) { storage::setLastWifi((uint8_t)i); break; }
+    }
 
     // PIN-encrypted token -> ask for the PIN; otherwise load it and go straight
     // to Running (no unlock screen, the gift-friendly default).
