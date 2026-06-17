@@ -77,9 +77,17 @@ void drawDashboard(const Dashboard& d);
 // an incrementing frame counter while a poll is in flight.
 void drawRefreshAnim(int frame);
 
+// The intro splash slides down to this Y offset and rests there (vertically
+// centered). Reuse it so a static splash matches the animation's final frame.
+constexpr int SPLASH_REST_Y = 28;
+
 // Boot splash: Claude Code logo + wordmark, shifted down by `yoff` (for the
-// slide-in animation).
+// slide-in animation; pass SPLASH_REST_Y for the settled position).
 void drawSplash(int yoff = 0);
+
+// Splash with a "keep holding to reset" progress bar (frac 0..1). Shown at boot
+// only while IO16 is actually held, so a normal boot just shows the splash.
+void drawResetHold(float frac);
 
 // Shown when a poll fails so a photo of the screen reveals the HTTP code.
 void drawApiError(int httpCode, const String& note);

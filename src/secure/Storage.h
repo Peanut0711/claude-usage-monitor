@@ -21,6 +21,11 @@ void begin();
 bool isProvisioned();
 void setProvisioned(bool value);
 
+// True if the stored token is sealed under the PIN key (needs an unlock PIN);
+// false means it's sealed under the device key and loads without a PIN.
+bool tokenPinned();
+void setTokenPinned(bool value);
+
 // Sealed-blob get/put. putBlob returns false on NVS write error; getBlob
 // returns the number of bytes read (0 if the key is missing or buf too small).
 bool   putBlob(const char* key, const uint8_t* data, size_t len);

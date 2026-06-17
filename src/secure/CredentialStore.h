@@ -19,8 +19,10 @@ namespace credentials {
 void begin();
 
 // --- Provisioning (called once from the captive portal) ---------------------
-// Seals WiFi creds under the device key and the token under the PIN key, then
-// marks the device provisioned. Returns false on any crypto/NVS failure.
+// Seals WiFi creds under the device key. The token is sealed under the PIN key
+// when `pin` is the required length, or under the device key when `pin` is empty
+// (no unlock screen — simpler, weaker at rest). Marks the device provisioned.
+// Returns false on any crypto/NVS failure (or a non-empty pin of wrong length).
 bool provision(const String& ssid, const String& pass,
                const String& token, const String& pin);
 
@@ -37,7 +39,15 @@ bool isProvisioned();
 // how many were loaded.
 int loadWifiList(String ssids[], String passwords[], int maxN);
 
-// --- Token unlock -----------------------------------------------------------
+// --- Token load -------------------------------------------------------------
+// True if the stored token is PIN-encrypted (an unlock PIN must be entered).
+// When false, the token loads with loadToken() and no unlock screen is shown.
+bool tokenNeedsPin();
+
+// Decrypt the device-key-sealed token (the no-PIN case). Returns false if the
+// token is PIN-encrypted, missing, or corrupt.
+bool loadToken(String& tokenOut);
+
 enum class UnlockResult { Ok, WrongPin, LockedOut, Error };
 
 // Attempts to decrypt the token with `pin`. On success resets the fail

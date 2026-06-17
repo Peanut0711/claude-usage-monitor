@@ -258,6 +258,40 @@ TODO.md 섹션 9(친구 선물용 초기 설정 간소화) 중 9.1·9.2 완료. 
   (둘 다 큰 값일 때) — 길면 `MAX_MS` 축소.
 - 검증: 빌드 SUCCESS(경고 0), COM5 업로드, 실기에서 순서/여유/바 부드러움 확인 완료.
 
+## ✅ PIN 선택제 (기본 PIN 없음) — 빌드·플래싱·실기 확인 완료 (2026-06-17)
+
+섹션 9 선물 간소화: 셋업에서 **PIN을 비우면 토큰을 기기키로 봉인**해 잠금화면을 생략.
+보안 원하면 4자리 PIN 입력 시 기존처럼 PIN키 봉인. (at-rest를 진지하게 원하면 PIN이
+아니라 flash 암호화로 가야 함 — PIN은 flash 덤프 앞에선 4자리라 한계. 그래서 B(eFuse)
+대신 A(선택제)를 택함.)
+- `provision(ssid, pass, token, pin)`: pin 빈 문자열이면 `deriveDeviceKey`, 4자리면
+  `derivePinKey`. NVS 플래그 `CUM_NVS_TOKEN_PINNED`(`tokpin`)로 봉인 방식 기록.
+- `credentials::tokenNeedsPin()` / `loadToken()`(기기키 복호화) 추가. `Storage`에
+  `tokenPinned()`/`setTokenPinned()`.
+- `main.cpp` 부팅: `tokenNeedsPin()`이면 `enterUnlock()`, 아니면 `loadToken()` 후 바로
+  `enterRunning()`(키패드 생략). loadToken 실패 시 `enterSetup()`.
+- `Portal.cpp`: PIN 검증을 선택형(빈칸 허용)으로, 셋업 폼 문구를 "비우면 잠금화면 생략"
+  으로. `/unlock` 웹 페이지·wipe 정책은 PIN 사용자용으로 유지.
+- ⚠️ **마이그레이션**: 기존 PIN-봉인 토큰은 새 펌웨어가 기기키로 못 풀어 셋업으로 떨어짐
+  → **토큰 재입력 필요**(빈칸이면 옛 토큰 유지돼 재부팅 루프). loadToken 실패 시 `wipe()`로
+  깨끗이 비워 함정 차단하는 건 **미적용 옵션**으로 남김(사용자 보류).
+- 검증: 빌드 SUCCESS, COM5 업로드, 실기에서 무-PIN 셋업→재부팅 시 키패드 없이 대시보드
+  진입 확인.
+
+## ✅ 부팅 리셋 안내 개편 (안 3: 맥락 노출) — 빌드·플래싱·실기 확인 완료 (2026-06-17)
+
+기존 `"Starting / Hold IO16 to reset"` 텍스트 화면 제거. 평소엔 스플래시만, **IO16을
+실제로 누를 때만** 리셋 진행바 노출.
+- `display::drawResetHold(frac)` 추가: 스플래시(로고+워드마크) + 위 힌트 "keep holding
+  to reset" + 아래 채움 바.
+- `factoryResetRequested()`: `drawSplash()`만 표시 → IO16 누르면 진행바, `HOLD_MS`(1500ms)
+  채우면 리셋, 도중 떼면 스플래시 복귀.
+- **위치 튐 수정**: 인트로 슬라이드인은 `yoff=28`(세로 중앙)에서 정지하는데 리셋 스플래시는
+  `yoff=0`이라 28px 튀던 문제 → `SPLASH_REST_Y=28` 상수로 인트로 루프·정지 스플래시·
+  리셋 홀드 위치 통일.
+- 검증: 빌드 SUCCESS, COM5 업로드, 실기에서 위치 연속성/1.5s 채움/힌트·바 비겹침/중도복귀
+  모두 확인 완료.
+
 ## ⏭️ 이후 단계
 
 - **Stage 5(선택)**: LVGL 도입 (HAL 레이어 이미 분리 → `display::gfx()`로 flush 콜백 연결).

@@ -91,9 +91,11 @@ b{color:#ececec}</style></head><body>
 <li><b>Paste the shown code back into the terminal</b> (easy to miss!).</li>
 <li>Copy the printed <code>sk-ant-oat...</code> and paste it above.</li>
 </ol>
-<label>PIN (4 digits)</label>
-<input name="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4">
-<small>The PIN encrypts your token and is never stored.<br>
+<label>PIN (4 digits &mdash; optional)</label>
+<input name="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4"
+ placeholder="leave blank to skip the lock screen">
+<small>A PIN encrypts your token and is asked on every power-up. <b>Leave it blank</b>
+to skip the lock screen &mdash; simpler, and fine when the device stays with you.<br>
 Adding/changing WiFi? Leave token &amp; PIN blank: your token is kept and the
 network is remembered (up to 3, e.g. home + office).</small>
 <button type="submit">Save &amp; verify</button></form></body></html>)HTML";
@@ -184,8 +186,9 @@ void handleSave() {
         err = "Token is empty.";
     else if (token.length() > CUM_TOKEN_MAX_LEN)
         err = "Token too long: " + String(token.length()) + " > 1024.";
-    else if (!wifiOnly && pin.length() != CUM_PIN_LEN)
-        err = "PIN must be exactly 4 digits (you entered " + String(pin.length()) + ").";
+    else if (!wifiOnly && pin.length() != 0 && pin.length() != CUM_PIN_LEN)
+        err = "PIN must be 4 digits, or left blank for no PIN (you entered "
+              + String(pin.length()) + ").";
 
     if (err.length()) {
         gServer.send(400, "text/html", resultHtml("Check your entries", htmlEscape(err)));

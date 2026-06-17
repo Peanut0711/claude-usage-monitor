@@ -445,6 +445,31 @@ void drawSplash(int yoff) {
     present();
 }
 
+void drawResetHold(float frac) {
+    if (frac < 0) frac = 0;
+    if (frac > 1) frac = 1;
+    const int yoff = SPLASH_REST_Y;        // same position as the settled splash
+    canvas.fillScreen(rgb(T_BG));
+
+    // Hint above, splash centered, fill bar below — the logo/wordmark sit exactly
+    // where the plain splash does, so appearing/clearing the bar causes no jump.
+    canvas.setFont(&fonts::FreeSans9pt7b);
+    canvas.setTextDatum(textdatum_t::top_center);
+    canvas.setTextColor(rgb(T_MUTED));
+    canvas.drawString("keep holding to reset", canvas.width() / 2, 10);
+
+    drawBits(CC_LOGO_L, CC_LOGO_L_W, CC_LOGO_L_H,
+             canvas.width() / 2 - CC_LOGO_L_W / 2, 8 + yoff, 1, T_CORAL);
+    canvas.pushImage(canvas.width() / 2 - CC_TEXT_W / 2, 110 + yoff,
+                     CC_TEXT_W, CC_TEXT_H, (const lgfx::rgb565_t*)CC_TEXT);
+
+    const int bw = 220, bx = canvas.width() / 2 - bw / 2, by = 202, bh = 8, r = 4;
+    canvas.fillRoundRect(bx, by, bw, bh, r, rgb(T_TRACK));
+    int fw = (int)(bw * frac);
+    if (fw > 0) canvas.fillRoundRect(bx, by, fw, bh, r, rgb(T_CORAL));
+    present();
+}
+
 void drawRefreshAnim(int frame) {
     canvas.fillScreen(rgb(T_BG));
 

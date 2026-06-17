@@ -119,15 +119,19 @@ bool doubleTapDetected() {
 
 bool factoryResetRequested() {
     pinMode(TDS3_PIN_BTN_IO16, INPUT_PULLUP);
-    display::drawMessage("Starting", "Hold IO16 to reset & re-setup");
+    display::drawSplash(display::SPLASH_REST_Y);  // same resting spot as the intro
+    constexpr uint32_t HOLD_MS = 1500;            // hold IO16 this long to reset
     uint32_t start = millis();
     while (millis() - start < 2500) {
-        if (io16Down()) {
-            uint32_t held = millis();           // require a deliberate hold
+        if (io16Down()) {                         // reveal the reset bar only on press
+            uint32_t held = millis();
             while (io16Down()) {
-                if (millis() - held > 400) return true;
+                uint32_t dt = millis() - held;
+                if (dt >= HOLD_MS) return true;   // held long enough -> reset
+                display::drawResetHold((float)dt / HOLD_MS);
                 delay(20);
             }
+            display::drawSplash(display::SPLASH_REST_Y);  // released early -> splash
         }
         delay(20);
     }
@@ -428,7 +432,7 @@ void setup() {
     }
     Serial.println("[display] init OK");
 
-    for (int f = 0; f <= 28; f += 2) {  // splash slides down into place
+    for (int f = 0; f <= display::SPLASH_REST_Y; f += 2) {  // splash slides into place
         display::drawSplash(f);
         delay(35);
     }
@@ -462,7 +466,21 @@ void setup() {
         return;
     }
     gSsid = net::ssid();
-    enterUnlock();
+
+    // PIN-encrypted token -> ask for the PIN; otherwise load it and go straight
+    // to Running (no unlock screen, the gift-friendly default).
+    if (credentials::tokenNeedsPin()) {
+        enterUnlock();
+    } else {
+        String tok;
+        if (credentials::loadToken(tok)) {
+            gToken = tok;
+            enterRunning();
+        } else {
+            Serial.println("[token] device-key load failed -> setup mode");
+            enterSetup();
+        }
+    }
 }
 
 void loop() {

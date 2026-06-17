@@ -39,6 +39,16 @@ void setProvisioned(bool value) {
     s.prefs.putUChar(CUM_NVS_PROVISIONED, value ? 1 : 0);
 }
 
+bool tokenPinned() {
+    Scoped s(true);
+    return s.prefs.getUChar(CUM_NVS_TOKEN_PINNED, 0) != 0;
+}
+
+void setTokenPinned(bool value) {
+    Scoped s(false);
+    s.prefs.putUChar(CUM_NVS_TOKEN_PINNED, value ? 1 : 0);
+}
+
 bool putBlob(const char* key, const uint8_t* data, size_t len) {
     Scoped s(false);
     return s.prefs.putBytes(key, data, len) == len;

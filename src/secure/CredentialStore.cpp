@@ -96,24 +96,53 @@ bool provision(const String& ssid, const String& pass,
     if (ssid.length() == 0 || ssid.length() > CUM_SSID_MAX_LEN) return false;
     if (pass.length() > CUM_PASS_MAX_LEN) return false;
     if (token.length() == 0 || token.length() > CUM_TOKEN_MAX_LEN) return false;
-    if (pin.length() != CUM_PIN_LEN) return false;
+    if (pin.length() != 0 && pin.length() != CUM_PIN_LEN) return false;
 
-    uint8_t pinKey[crypto::KEY_LEN];
-    bool ok = crypto::derivePinKey(pin, pinKey);
+    // Empty PIN -> seal the token under the device key (no unlock screen).
+    bool pinned = (pin.length() == CUM_PIN_LEN);
+    uint8_t key[crypto::KEY_LEN];
+    bool ok = pinned ? crypto::derivePinKey(pin, key)
+                     : crypto::deriveDeviceKey(key);
 
     if (ok) {
         // Fresh setup: WiFi list becomes just this one network.
         ok = sealWifiSlot(0, ssid, pass) &&
-             sealAndStore(CUM_NVS_TOKEN_BLOB, pinKey,
+             sealAndStore(CUM_NVS_TOKEN_BLOB, key,
                           (const uint8_t*)token.c_str(), token.length());
     }
 
     if (ok) {
         storage::setWifiCount(1);
         storage::setPinFails(0);
+        storage::setTokenPinned(pinned);
         storage::setProvisioned(true);
     }
-    memset(pinKey, 0, sizeof(pinKey));
+    memset(key, 0, sizeof(key));
+    return ok;
+}
+
+bool tokenNeedsPin() {
+    return storage::isProvisioned() && storage::tokenPinned();
+}
+
+bool loadToken(String& tokenOut) {
+    if (storage::tokenPinned()) return false;           // caller must use unlock()
+
+    uint8_t blob[crypto::OVERHEAD + CUM_TOKEN_MAX_LEN];
+    size_t blobLen = storage::getBlob(CUM_NVS_TOKEN_BLOB, blob, sizeof(blob));
+    if (blobLen == 0) return false;
+
+    uint8_t devKey[crypto::KEY_LEN];
+    if (!crypto::deriveDeviceKey(devKey)) return false;
+
+    uint8_t pt[CUM_TOKEN_MAX_LEN];
+    size_t ptLen = 0;
+    bool ok = crypto::open(devKey, blob, blobLen, pt, &ptLen);
+    memset(devKey, 0, sizeof(devKey));
+    memset(blob, 0, sizeof(blob));
+
+    if (ok) tokenOut = String((const char*)pt, ptLen);
+    memset(pt, 0, sizeof(pt));
     return ok;
 }
 
