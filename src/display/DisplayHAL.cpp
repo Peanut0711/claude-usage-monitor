@@ -366,6 +366,28 @@ void drawCardBand(int yc, float pct, uint32_t barColor, float pop, float glow,
     canvas.pushSprite(0, 0);
     lcd.clearClipRect();
 }
+
+// Top-bar wall clock (center slot, NexonText 11pt). `colonOn` blinks the ':'
+// WITHOUT shifting the digits: the whole string is laid out with the colon, then
+// when off we overpaint just the colon glyph's column in bg. Caller positions /
+// pushes; this only paints onto the canvas.
+constexpr int CLOCK_Y = 7;
+void drawClockText(const String& clock, bool colonOn) {
+    const int cx = canvas.width() / 2;
+    canvas.setFont(&NexonText);
+    canvas.setTextDatum(textdatum_t::top_center);
+    canvas.setTextColor(rgb(T_TITLE));
+    canvas.drawString(clock, cx, CLOCK_Y);
+    if (!colonOn) {
+        int c = clock.indexOf(':');
+        if (c >= 0) {                                  // bitmap-font advances are additive
+            int left   = cx - canvas.textWidth(clock) / 2;
+            int colonX = left + canvas.textWidth(clock.substring(0, c).c_str());
+            int colonW = canvas.textWidth(":");
+            canvas.fillRect(colonX, CLOCK_Y, colonW, 18, rgb(T_BG));
+        }
+    }
+}
 }  // namespace
 
 void drawDashboard(const Dashboard& d) {
@@ -373,10 +395,8 @@ void drawDashboard(const Dashboard& d) {
 
     // ---- Top bar (icons aligned to the card box edges: left 12, right 468) -
     drawLogo(12, 3, 1);                         // 30x30 logo, left edge on box left
-    canvas.setFont(&fonts::FreeSansBold12pt7b);
-    canvas.setTextDatum(textdatum_t::top_center);
-    canvas.setTextColor(rgb(T_TITLE));
-    canvas.drawString("Usage", canvas.width() / 2, 8);
+    // Wall clock replaces the (redundant) "Usage" title in the center slot.
+    drawClockText(d.clock.length() ? d.clock : "--:--", true);
 
     drawBattery(canvas.width() - 44, 9, d.battery, d.charging);  // nub tip on box right (468)
     drawWifiBars(canvas.width() - 74, 9, d.rssi);
@@ -402,6 +422,15 @@ void drawDashboardBands(float curPct, float wkPct, float curPop, float wkPop,
                         float curGlow, float wkGlow) {
     drawCardBand(34,  curPct, T_CUR, curPop, curGlow, "Current");
     drawCardBand(118, wkPct,  T_WK,  wkPop,  wkGlow,  "Weekly");
+}
+
+void drawClockColon(const String& clock, bool colonOn) {
+    const int cx = canvas.width() / 2;
+    canvas.fillRect(cx - 60, 0, 120, 26, rgb(T_BG));   // clear the clock band only
+    drawClockText(clock, colonOn);
+    lcd.setClipRect(cx - 60, 0, 120, 26);              // push just that band
+    canvas.pushSprite(0, 0);
+    lcd.clearClipRect();
 }
 
 void drawDetail(const Detail& d) {

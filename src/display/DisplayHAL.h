@@ -64,6 +64,7 @@ struct Dashboard {
     int    battery      = 100;  // percent 0..100 (placeholder until PMU)
     bool   charging     = true; // on USB / charging
     String status;              // playful footer line
+    String clock;               // top-bar wall clock, e.g. "PM 2:30" ("--:--" until NTP)
     bool   stale        = false; // last poll failed; showing previous data
     float  curPop       = 0;    // landing-pop intensity 0..1 for the Current card
     float  wkPop        = 0;    // landing-pop intensity 0..1 for the Weekly card
@@ -79,6 +80,11 @@ void drawDashboard(const Dashboard& d);
 // drive the white-tinted bar/number flash (decoupled so the glow can lag).
 void drawDashboardBands(float curPct, float wkPct, float curPop, float wkPop,
                         float curGlow, float wkGlow);
+
+// Redraw ONLY the top-bar clock and push just its band (cheap 2Hz colon blink).
+// `colonOn` toggles the ':' without shifting the digits. Needs a prior full
+// drawDashboard() to have painted the rest of the chrome.
+void drawClockColon(const String& clock, bool colonOn);
 
 // One frame of the "refreshing" animation (bouncing logo + dots). Call with
 // an incrementing frame counter while a poll is in flight.

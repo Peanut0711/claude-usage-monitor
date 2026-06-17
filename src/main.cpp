@@ -77,6 +77,21 @@ String fmtCountdown(long resetEpoch, time_t now) {
     return String(h) + "h " + String(m) + "m";
 }
 
+// Top-bar wall clock as "AM/PM h:mm" in KST. configTime() runs in UTC (reset
+// countdowns need a raw epoch), so shift +9h only for display.
+String fmtClock(time_t now) {
+    if (now < 1000000000L) return "--:--";        // NTP hasn't synced yet
+    time_t kst = now + 9L * 3600;
+    struct tm tmv;
+    gmtime_r(&kst, &tmv);
+    int h12 = tmv.tm_hour % 12;
+    if (h12 == 0) h12 = 12;
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%s %d:%02d",
+             tmv.tm_hour < 12 ? "AM" : "PM", h12, tmv.tm_min);
+    return String(buf);
+}
+
 // Both side buttons are assigned. IO16: boot-hold = factory reset; in Running =
 // backlight toggle (and wake). IO12: in Running = cycle pages, and wake the
 // screen when it's off (the wake press is consumed, so it doesn't also page).
@@ -246,6 +261,7 @@ void drawDashFrame(float curPop, float wkPop,
     d.battery      = power::percent();
     d.charging     = power::charging();
     d.status       = kStatus[gStatusIdx % (sizeof(kStatus) / sizeof(kStatus[0]))];
+    d.clock        = fmtClock(now);
     d.stale        = gStale;
     d.curPop       = curPop;
     d.wkPop        = wkPop;
@@ -703,6 +719,20 @@ void loop() {
             if (gPendTimeRender && !gAnimating && gPage == PAGE_DASH && gLastUsage.ok) {
                 gPendTimeRender = false;
                 renderCurrentView();
+            }
+
+            // Blink the top-bar clock's colon at 2Hz. This is a cheap partial
+            // redraw of just the clock band, and recomputing the time each tick
+            // also keeps the minute current (polls are only 60s apart). Skipped
+            // while a count-up or refresh animation owns the screen.
+            static uint32_t lastColon = 0;
+            static bool     colonOn   = true;
+            bool clockLive = !gAnimating && !(gPollRunning && gPollAnimate)
+                             && gPage == PAGE_DASH && gLastUsage.ok && gClockValid;
+            if (clockLive && millis() - lastColon >= 500) {
+                lastColon = millis();
+                colonOn = !colonOn;
+                display::drawClockColon(fmtClock(time(nullptr)), colonOn);
             }
 
             // Trigger a poll: Home button (animated) or the periodic interval.
