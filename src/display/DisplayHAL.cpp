@@ -12,6 +12,7 @@
 #include "claudecode_bolt.h"
 #include "claudecode_logo.h"
 #include "claudecode_wordmark.h"
+#include "nexon_num_16.h"   // NEXON Lv1 Gothic Bold, digits + '%' (big % number)
 
 namespace {
 LGFX_TDisplayS3Pro lcd;
@@ -310,10 +311,12 @@ void drawMetricCard(int yc, const char* label, float pct, const String& reset,
     // Big percentage — glows toward the card's pastel tone as it lands.
     char buf[8];
     snprintf(buf, sizeof(buf), "%d%%", (int)(pct + 0.5f));
-    canvas.setFont(&fonts::FreeSansBold18pt7b);
-    canvas.setTextDatum(textdatum_t::top_left);
+    canvas.setFont(&NexonNum16);
+    // Center the number vertically between the card top (yc) and the bar top
+    // (yc+42) -> yc+21, with a middle datum so the font's metrics don't bias it.
+    canvas.setTextDatum(textdatum_t::middle_left);
     canvas.setTextColor(rgb(pop > 0 ? lerpColor(T_TITLE, pastel, pop) : T_TITLE));
-    canvas.drawString(buf, cx + 18, yc + 8);
+    canvas.drawString(buf, cx + 18, yc + 21);
 
     drawPill(label, cx + cw - 16, yc + 8);
 
