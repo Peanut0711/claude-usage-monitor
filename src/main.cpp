@@ -74,8 +74,9 @@ String fmtCountdown(long resetEpoch, time_t now) {
     return String(h) + "h " + String(m) + "m";
 }
 
-// IO16 is the only assigned side button (boot-hold = factory reset; in Running
-// = backlight toggle). IO12 is intentionally unassigned.
+// Both side buttons are assigned. IO16: boot-hold = factory reset; in Running =
+// backlight toggle (and wake). IO12: in Running = cycle pages, and wake the
+// screen when it's off (the wake press is consumed, so it doesn't also page).
 bool io16Down() {
     return digitalRead(TDS3_PIN_BTN_IO16) == LOW;
 }
@@ -484,14 +485,16 @@ void loop() {
                 break;
             }
 
-            if (asleep) {                            // wake only on double-tap
-                if (doubleTapDetected()) {
+            if (asleep) {                            // wake on double-tap or IO12
+                // IO12 wakes to the current view only; the press is consumed
+                // here so it won't also advance the page. The next (released
+                // then re-pressed) IO12 cycles pages as usual.
+                if (doubleTapDetected() || io12Pressed()) {
                     gManualOff = false;
                     noteInput();
                     renderCurrentView();
                 }
                 touch::homePressed();                // discard while asleep
-                io12Pressed();
                 delay(30);
                 break;
             }
