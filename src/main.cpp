@@ -117,11 +117,17 @@ bool doubleTapDetected() {
     return dbl;
 }
 
+// Boot-splash animation state, shared between the foreground reset window and
+// the background task that keeps it moving while WiFi connect blocks.
+int           gBootFrame    = 0;   // frame counter (continuous across both)
+volatile bool gBootAnimRun  = false;
+volatile bool gBootAnimDone = false;
+
 bool factoryResetRequested() {
     pinMode(TDS3_PIN_BTN_IO16, INPUT_PULLUP);
     constexpr uint32_t HOLD_MS = 1500;            // hold IO16 this long to reset
     uint32_t start = millis();
-    int frame = 0;
+    gBootFrame = 0;
     while (millis() - start < 2500) {
         if (io16Down()) {                         // reveal the reset bar only on press
             uint32_t held = millis();
@@ -133,7 +139,7 @@ bool factoryResetRequested() {
             }
             // released early -> the loop resumes the busy animation below
         }
-        display::drawBootBusy(frame++);           // bob + loading bar while waiting
+        display::drawBootBusy(gBootFrame++);      // bob + loading bar while waiting
         delay(20);
     }
     return false;
@@ -420,6 +426,33 @@ void enterRunning() {
     gLastPoll = millis();
 }
 
+// Keep the boot splash animating (on the spare core) while a blocking call runs.
+void bootAnimTaskFn(void*) {
+    while (gBootAnimRun) {
+        display::drawBootBusy(gBootFrame++);
+        delay(20);
+    }
+    gBootAnimDone = true;
+    vTaskDelete(nullptr);
+}
+
+// net::connectMulti() blocks on wm.run() for several seconds; run the boot
+// animation on the other core meanwhile so the screen doesn't freeze.
+bool connectWithAnim(const String ssids[], const String passwords[], int n) {
+    gBootAnimDone = false;
+    gBootAnimRun  = true;
+    xTaskCreatePinnedToCore(bootAnimTaskFn, "bootanim", 8192, nullptr, 1, nullptr, 0);
+
+    bool ok = net::connectMulti(ssids, passwords, n);
+
+    // Stop the task and wait for its final frame to finish before the main core
+    // draws again (only one core may touch the shared canvas at a time).
+    gBootAnimRun = false;
+    uint32_t t0 = millis();
+    while (!gBootAnimDone && millis() - t0 < 200) delay(5);
+    return ok;
+}
+
 }  // namespace
 
 void setup() {
@@ -462,7 +495,7 @@ void setup() {
     // Provisioned: load all remembered networks and join the strongest.
     String ssids[CUM_WIFI_MAX], passwords[CUM_WIFI_MAX];
     int n = credentials::loadWifiList(ssids, passwords, CUM_WIFI_MAX);
-    if (n == 0 || !net::connectMulti(ssids, passwords, n)) {
+    if (n == 0 || !connectWithAnim(ssids, passwords, n)) {
         Serial.println("[wifi] connect failed -> setup mode");
         enterSetup();
         return;
