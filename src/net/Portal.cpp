@@ -60,7 +60,9 @@ input,textarea,select{width:100%;box-sizing:border-box;padding:10px;border-radiu
 border:1px solid #3a404a;background:#1a1d24;color:#ececec;font-size:16px}
 textarea{height:90px}button{margin-top:20px;width:100%;padding:14px;border:0;
 border-radius:8px;background:#d97757;color:#fff;font-size:16px;font-weight:600}
-small{color:#8a9099}</style></head><body>
+small{color:#8a9099}ol{color:#c8ccd0;padding-left:20px;font-size:13px;margin:6px 0}
+li{margin:3px 0}code{background:#1a1d24;padding:1px 5px;border-radius:4px;color:#d97757}
+b{color:#ececec}</style></head><body>
 <h1>Claude Usage Monitor</h1>
 <form method="POST" action="/save">
 <label>WiFi network (2.4GHz only)</label>
@@ -81,7 +83,14 @@ small{color:#8a9099}</style></head><body>
 <input id="ssid" name="ssid" maxlength="32" placeholder="or type SSID" required>
 <label>WiFi password</label><input name="pass" type="password" maxlength="64">
 <label>OAuth token</label>
-<textarea name="token" placeholder="run: claude setup-token"></textarea>
+<textarea name="token" placeholder="sk-ant-oat..."></textarea>
+<small>Get it on a computer (not this phone):</small>
+<ol>
+<li>Run <code>claude setup-token</code> in a terminal.</li>
+<li>Allow access in the browser that opens.</li>
+<li><b>Paste the shown code back into the terminal</b> (easy to miss!).</li>
+<li>Copy the printed <code>sk-ant-oat...</code> and paste it above.</li>
+</ol>
 <label>PIN (4 digits)</label>
 <input name="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4">
 <small>The PIN encrypts your token and is never stored.<br>

@@ -162,7 +162,7 @@ uint32_t gAnimDur   = 0;                 // this run's climb length; scales with
 // Climb ticks one whole % at a time (RPG counter feel), no overshoot. Duration
 // = (% change) * STEP_MS, so small changes are quick and a big jump still feels
 // like real growth — capped so the first poll (0 -> N) doesn't drag.
-constexpr uint32_t STEP_MS = 180;        // time per 1% tick
+constexpr uint32_t STEP_MS = 100;        // time per 1% tick
 constexpr uint32_t MAX_MS  = 3000;       // cap for a large jump
 constexpr uint32_t POP_MS  = 600;        // spark/flash fade after landing
 

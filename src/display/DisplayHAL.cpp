@@ -121,19 +121,43 @@ void drawRow(const char* label, const String& value, int y) {
     canvas.setTextColor(rgb(COL_TITLE));
     canvas.drawString(value, 150, y);
 }
+
+// Escape a value for a WIFI: QR payload (\ ; , : " are reserved).
+String qrEscape(const String& s) {
+    String o; o.reserve(s.length() + 4);
+    for (size_t i = 0; i < s.length(); i++) {
+        char c = s[i];
+        if (c == '\\' || c == ';' || c == ',' || c == ':' || c == '"') o += '\\';
+        o += c;
+    }
+    return o;
+}
 }  // namespace
 
 void drawProvisioning(const String& apSsid, const String& apPass,
                       const String& portalIp) {
     drawHeader("Setup mode");
 
+    // Right: scan-to-join-WiFi QR (white margin so phones can read it).
+    String payload = "WIFI:T:WPA;S:" + qrEscape(apSsid) + ";P:" + qrEscape(apPass) + ";;";
+    uint8_t ver = payload.length() < 60 ? 4 : payload.length() < 100 ? 6 : 8;
+    const int qw = 120, qx = canvas.width() - qw - 12, qy = 44;
+    canvas.qrcode(payload.c_str(), qx, qy, qw, ver, true);
+    canvas.setFont(&fonts::Font0);
+    canvas.setTextDatum(textdatum_t::top_center);
+    canvas.setTextColor(rgb(COL_SUB));
+    canvas.drawString("scan to join WiFi", qx + qw / 2, qy + qw + 4);
+
+    // Left: manual fallback + the page to open after joining.
+    canvas.setTextDatum(textdatum_t::top_left);
     canvas.setFont(&fonts::FreeSans9pt7b);
     canvas.setTextColor(rgb(COL_LABEL));
-    canvas.drawString("Join this WiFi, then open the page:", 16, 56);
-
-    drawRow("WiFi:", apSsid, 88);
-    drawRow("Pass:", apPass, 116);
-    drawRow("Open:", "http://" + portalIp, 144);
+    canvas.drawString("1. Join this WiFi", 16, 52);
+    drawRow("WiFi:", apSsid, 78);
+    drawRow("Pass:", apPass, 102);
+    canvas.setTextColor(rgb(COL_LABEL));
+    canvas.drawString("2. Open the page", 16, 134);
+    drawRow("Open:", "http://" + portalIp, 160);
 
     canvas.setTextDatum(textdatum_t::bottom_left);
     canvas.setFont(&fonts::Font0);
