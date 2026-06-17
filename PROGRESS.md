@@ -113,6 +113,17 @@ Anthropic API 폴링 + rate-limit 헤더 파싱 + 대시보드까지 구현·검
 - 구현: `DisplayHAL::drawDashboard(const Dashboard&)`, 헬퍼 drawMascot/drawWifiBars/
   drawBattery/drawPill/drawMetricCard. 팔레트 `T_*` 상수.
 
+**카드 레이아웃 현재 값 (`drawMetricCard`, 2026-06-17 튜닝 완료):**
+| 요소 | 값 |
+|------|----|
+| 카드 | `cw=456 × ch=82`, 2장 y=34 / y=118 |
+| % 숫자 | `FreeSansBold18pt7b` (히어로, 카운트업 주인공) — `yc+8` |
+| 바 | `bh=12, r=6`, 너비 `cw-36` — `yc+42` |
+| Resets | `FreeSans9pt7b` — `yc+62` |
+> 이력: 처음 %=18pt·바=17px(r8)·Resets=12pt 였음 → "공간대비 큰 느낌" 피드백으로
+> 바 12px·Resets 9pt로 축소, %는 18pt 유지(A안), 작아진 Resets 만큼 바/Resets를
+> 아래로 내려 %-바 간격 확보(내부 간격 ~8px 균등). 폰트는 9/12/18pt 단위만 가능.
+
 ### Stage 4 진행
 1. ✅ **터치 PIN 키패드** — CST226SE 브링업(SensorLib `TouchDrvCSTXXX`, I²C 0x5A,
    RST=13, 폴링) → 온스크린 숫자패드로 PIN 입력. 웹 언락은 폴백으로 유지.
