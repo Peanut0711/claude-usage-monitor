@@ -180,7 +180,8 @@ uint32_t gDurCur = 0, gDurWk = 0;        // per-card climb lengths
 // Each card pops when it lands.
 constexpr uint32_t STEP_MS = 26;         // time per 1% of climb (~1 frame; 100% = 2.6s)
 constexpr uint32_t MAX_MS  = 3000;       // cap for a large jump (>= 100%*STEP_MS)
-constexpr uint32_t POP_MS  = 600;        // spark/flash fade after a card lands
+constexpr uint32_t REST_MS = 200;        // pause after landing before the fanfare bursts
+constexpr uint32_t FAN_MS  = 500;        // fanfare burst fade length (after the rest)
 
 // IO12 cycles pages: dashboard -> detail -> history.
 enum { PAGE_DASH = 0, PAGE_DETAIL = 1, PAGE_HISTORY = 2, PAGE_COUNT = 3 };
@@ -276,35 +277,49 @@ void startCountUp(float cur, float wk, bool fromZero) {
     gNeedFullDash = true;     // first frame paints the whole dashboard; rest = bands
 }
 
+// Ease-out (cubic): fast start, decelerating to the target. Front-loads the
+// motion so 2.6s feels snappier. Note: the number then skips at the start and
+// creeps at the end (the bar stays smooth since it's continuous).
+static inline float easeOut(float t) {
+    float u = 1.0f - t;
+    return 1.0f - u * u * u;
+}
+
 // Advance one animation frame and draw it. Both cards climb in PARALLEL from
-// t=0 (each over its own gDur), and each pops when it lands. The climb value is
-// continuous (no rounding): the % text rounds to an int so the NUMBER ticks 1%
-// at a time, but the BAR glides per-pixel. Clears gAnimating once both cards'
-// climbs and pops have finished.
+// t=0 (each over its own gDur) with an ease-out (fast start, slow finish). No
+// fanfare during the climb; only AFTER landing (100%) does the burst fire
+// (popI=1 -> 0 over FAN_MS, drawSparks spreading as it fades). popCurI/popWkI
+// 0..1 drives the bar glow + sparks. The climb value is continuous so the % text
+// ticks 1% at a time while the bar glides per-pixel. Clears gAnimating once both
+// fades finish.
 void stepCountUp() {
     uint32_t el = millis() - gAnimStart;
     float popCurI = 0.0f, popWkI = 0.0f;
     bool full = gNeedFullDash;     // first frame full-redraws; the rest push bands
     gNeedFullDash = false;
 
-    if (el < gDurCur) {                              // Current climbing
-        gShownCur = gStartCur + (gTgtCur - gStartCur) * ((float)el / gDurCur);
-    } else {                                         // Current landed -> pop
+    if (el < gDurCur) {                              // Current climbing (no fanfare yet)
+        float p = easeOut((float)el / gDurCur);
+        gShownCur = gStartCur + (gTgtCur - gStartCur) * p;
+    } else {                                         // landed (100%) -> rest, then burst+fade
         gShownCur = gTgtCur;
         uint32_t since = el - gDurCur;
-        if (gPopCur && since < POP_MS) popCurI = 1.0f - (float)since / POP_MS;
+        if (gPopCur && since >= REST_MS && since < REST_MS + FAN_MS)
+            popCurI = 1.0f - (float)(since - REST_MS) / FAN_MS;
     }
 
-    if (el < gDurWk) {                               // Weekly climbing
-        gShownWk = gStartWk + (gTgtWk - gStartWk) * ((float)el / gDurWk);
-    } else {                                         // Weekly landed -> pop
+    if (el < gDurWk) {                               // Weekly climbing (no fanfare yet)
+        float p = easeOut((float)el / gDurWk);
+        gShownWk = gStartWk + (gTgtWk - gStartWk) * p;
+    } else {                                         // landed (100%) -> rest, then burst+fade
         gShownWk = gTgtWk;
         uint32_t since = el - gDurWk;
-        if (gPopWk && since < POP_MS) popWkI = 1.0f - (float)since / POP_MS;
+        if (gPopWk && since >= REST_MS && since < REST_MS + FAN_MS)
+            popWkI = 1.0f - (float)(since - REST_MS) / FAN_MS;
     }
 
-    uint32_t endCur = gDurCur + (gPopCur ? POP_MS : 0);
-    uint32_t endWk  = gDurWk  + (gPopWk  ? POP_MS : 0);
+    uint32_t endCur = gDurCur + (gPopCur ? REST_MS + FAN_MS : 0);
+    uint32_t endWk  = gDurWk  + (gPopWk  ? REST_MS + FAN_MS : 0);
     if (el >= endCur && el >= endWk) gAnimating = false;
 
     drawDashFrame(popCurI, popWkI, full);
