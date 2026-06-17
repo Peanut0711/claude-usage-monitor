@@ -7,6 +7,7 @@ src/secrets.h
 *.bin
 *.elf
 
-# Python cache
-tools/__pycache__/
+# Python cache (always ignored in this project, any location)
+__pycache__/
 *.pyc
+*.pyo
