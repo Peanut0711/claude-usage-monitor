@@ -159,13 +159,17 @@ float    gTgtCur   = 0, gTgtWk   = 0;   // where it's heading
 bool     gAnimating = false;
 bool     gPopCur = false, gPopWk = false;  // pop only the card(s) that grew
 uint32_t gAnimStart = 0;
-uint32_t gAnimDur   = 0;                 // this run's climb length; scales with delta
-// Climb ticks one whole % at a time (RPG counter feel), no overshoot. Duration
-// = (% change) * STEP_MS, so small changes are quick and a big jump still feels
-// like real growth — capped so the first poll (0 -> N) doesn't drag.
-constexpr uint32_t STEP_MS = 100;        // time per 1% tick
+uint32_t gDurCur = 0, gDurWk = 0;        // per-card climb lengths (cards run one
+                                         // after the other: top, then bottom)
+// Each card climbs continuously; the big % text rounds to an int so the NUMBER
+// still ticks 1% at a time (~10Hz) while the BAR glides per-pixel. Climb length
+// = (% delta) * STEP_MS, capped at MAX_MS. The cards run sequentially: the top
+// (Current) climbs and pops, GAP_MS lets the burst be enjoyed, then the bottom
+// (Weekly) climbs and pops.
+constexpr uint32_t STEP_MS = 100;        // time per 1% of climb
 constexpr uint32_t MAX_MS  = 3000;       // cap for a large jump
-constexpr uint32_t POP_MS  = 600;        // spark/flash fade after landing
+constexpr uint32_t POP_MS  = 600;        // spark/flash fade after a card lands
+constexpr uint32_t GAP_MS  = 250;        // pause after top's pop, before bottom climbs
 
 // IO12 cycles pages: dashboard -> detail -> history.
 enum { PAGE_DASH = 0, PAGE_DETAIL = 1, PAGE_HISTORY = 2, PAGE_COUNT = 3 };
@@ -225,37 +229,76 @@ void drawDashFrame(float curPop, float wkPop) {
     display::drawDashboard(d);
 }
 
-// Begin a count-up from the on-screen values to the new poll values.
-void startCountUp(float cur, float wk) {
-    gStartCur = gShownCur; gStartWk = gShownWk;
+// Climb time for a given % delta: STEP_MS per 1%, capped, min one frame.
+static uint32_t climbMs(float deltaPct) {
+    uint32_t ms = (uint32_t)((int)roundf(fabsf(deltaPct))) * STEP_MS;
+    if (ms > MAX_MS) ms = MAX_MS;
+    if (ms == 0)     ms = 1;              // a 0% change still needs one frame to land
+    return ms;
+}
+
+// Begin a count-up to the new poll values. `fromZero` (manual refresh / wake)
+// replays the full growth from 0%; otherwise (periodic poll) only the delta from
+// what's on screen is animated — so e.g. 25%->26% just grows 1% and pops. The
+// two cards animate sequentially (Current first, then Weekly); see stepCountUp.
+void startCountUp(float cur, float wk, bool fromZero) {
+    gStartCur = fromZero ? 0.0f : gShownCur;
+    gStartWk  = fromZero ? 0.0f : gShownWk;
+    gShownCur = gStartCur; gShownWk = gStartWk;   // draw the first frame at the start
     gTgtCur = cur; gTgtWk = wk;
-    gPopCur = (cur > gStartCur + 0.5f);   // only pop a card that actually grew
+    gPopCur = (cur > gStartCur + 0.5f);           // pop a card only if it grew >=1%
     gPopWk  = (wk  > gStartWk  + 0.5f);
-    // Duration follows the larger of the two changes so both cards land together.
-    int steps = (int)roundf(fmaxf(fabsf(cur - gStartCur), fabsf(wk - gStartWk)));
-    gAnimDur = (uint32_t)steps * STEP_MS;
-    if (gAnimDur > MAX_MS) gAnimDur = MAX_MS;
-    if (gAnimDur == 0)     gAnimDur = 1;  // no change -> finish immediately
+    gDurCur = climbMs(cur - gStartCur);
+    gDurWk  = climbMs(wk  - gStartWk);
     gAnimStart = millis();
     gAnimating = true;
 }
 
-// Advance one animation frame and draw it. Clears gAnimating when finished.
+// Advance one animation frame and draw it. The two cards run in sequence:
+//   1. Current climbs 0..gDurCur (Weekly held at its start value).
+//   2. Current pops; GAP_MS lets the burst be enjoyed (only if it popped).
+//   3. Weekly climbs, then pops.
+// The climb value is kept continuous (no rounding): the % text rounds to an int
+// so the NUMBER still ticks 1% at a time (~10Hz), but the BAR glides per-pixel.
+// Clears gAnimating once the bottom card's pop has finished.
 void stepCountUp() {
     uint32_t el = millis() - gAnimStart;
-    float popI = 0.0f;
-    if (el < gAnimDur) {                         // climbing 1% at a time (linear)
-        float t = (float)el / gAnimDur;
-        gShownCur = floorf(gStartCur + (gTgtCur - gStartCur) * t + 0.5f);
-        gShownWk  = floorf(gStartWk  + (gTgtWk  - gStartWk ) * t + 0.5f);
-    } else if ((gPopCur || gPopWk) && el < gAnimDur + POP_MS) {  // landed: pop
-        gShownCur = gTgtCur; gShownWk = gTgtWk;
-        popI = 1.0f - (float)(el - gAnimDur) / POP_MS;
-    } else {                                     // done
-        gShownCur = gTgtCur; gShownWk = gTgtWk;
-        gAnimating = false;
+    float popCurI = 0.0f, popWkI = 0.0f;
+
+    // --- 1. Top card (Current) climbs; bottom waits at its start value. ---
+    if (el < gDurCur) {
+        float t = (float)el / gDurCur;
+        gShownCur = gStartCur + (gTgtCur - gStartCur) * t;
+        gShownWk  = gStartWk;
+        drawDashFrame(0.0f, 0.0f);
+        return;
     }
-    drawDashFrame(gPopCur ? popI : 0.0f, gPopWk ? popI : 0.0f);
+    gShownCur = gTgtCur;                              // Current landed
+    uint32_t curSince = el - gDurCur;
+    if (gPopCur && curSince < POP_MS)
+        popCurI = 1.0f - (float)curSince / POP_MS;
+
+    // --- 2. Hold the bottom until the top's pop has played + a short gap. ---
+    uint32_t wkDelay = gPopCur ? (POP_MS + GAP_MS) : 0;
+    if (curSince < wkDelay) {
+        gShownWk = gStartWk;
+        drawDashFrame(popCurI, 0.0f);
+        return;
+    }
+
+    // --- 3. Bottom card (Weekly) climbs, then pops. ---
+    uint32_t wkSince = curSince - wkDelay;
+    if (wkSince < gDurWk) {
+        float t = (float)wkSince / gDurWk;
+        gShownWk = gStartWk + (gTgtWk - gStartWk) * t;
+    } else {
+        gShownWk = gTgtWk;                            // Weekly landed
+        uint32_t wkPopSince = wkSince - gDurWk;
+        if (gPopWk && wkPopSince < POP_MS)
+            popWkI = 1.0f - (float)wkPopSince / POP_MS;
+        if (wkPopSince >= POP_MS) gAnimating = false;  // everything done
+    }
+    drawDashFrame(popCurI, popWkI);
 }
 
 // Snap the animation straight to its target (used when leaving the dashboard).
@@ -542,7 +585,10 @@ void loop() {
                     gStatusIdx++;
                     histPush(gPollResult.util5h, gPollResult.util7d);
                     if (gPage == PAGE_DASH) {
-                        startCountUp(gPollResult.util5h, gPollResult.util7d);
+                        // gPollAnimate is true for a manual (Home) refresh, false
+                        // for the periodic poll -> manual replays from 0, periodic
+                        // grows only the delta.
+                        startCountUp(gPollResult.util5h, gPollResult.util7d, gPollAnimate);
                     } else {                         // off-page: just snap, no anim
                         gShownCur = gPollResult.util5h;
                         gShownWk  = gPollResult.util7d;

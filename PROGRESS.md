@@ -240,6 +240,24 @@ TODO.md 섹션 9(친구 선물용 초기 설정 간소화) 중 9.1·9.2 완료. 
 - 검증: `pio run -e tdisplay-s3-pro` SUCCESS(경고 0), COM5 업로드(해시 검증 OK),
   실기에서 깨우기/페이지유지/재누름 순환 동작 확인 완료.
 
+## ✅ 대시보드 카운트업 애니메이션 개편 — 빌드·플래싱·실기 확인 완료 (2026-06-17)
+
+게이지 바 성장 애니메이션을 다듬음. 모두 `src/main.cpp`의 `startCountUp`/`stepCountUp`.
+- **바 픽셀 연속화**: climb 값에서 `floorf` 제거. 큰 % 텍스트는 그릴 때 어차피
+  정수 반올림(`DisplayHAL.cpp:310`)이라 **숫자는 1%씩 틱(~10Hz) 유지**되고, 바만 연속값을
+  받아 **픽셀 단위로 부드럽게** 미끄러짐(기존엔 100ms마다 ~4px 계단).
+- **수동 vs 주기 분기**: `startCountUp(cur, wk, fromZero)`. `fromZero=gPollAnimate`
+  (Home=true/주기=false). **수동(Home)=0%부터 풀 리플레이**(값 같아도 재생),
+  **주기(1분)=성장분만**(25→26%면 1%만 자라고 팡). 시작값은 각각 0/직전 표시값.
+  변화 없으면(`>start+0.5` 거짓) 무애니·무팡.
+- **카드 순차 진행**: 위(Current) 먼저 climb→팡, `GAP_MS`(250ms) 여유 후 아래(Weekly)
+  climb→팡. 위 진행 중 아래는 시작값에 정지. 카드별 타임라인 `gDurCur`/`gDurWk`
+  (기존 단일 `gAnimDur` 대체), `climbMs()` 헬퍼.
+- 튜닝 노브: `STEP_MS`(100, 1%당 시간) `MAX_MS`(3000, 카드당 climb 캡) `POP_MS`(600)
+  `GAP_MS`(250). ⚠️ 수동 풀 리플레이는 순차+여유로 최악 ~7.5s까지 길어질 수 있음
+  (둘 다 큰 값일 때) — 길면 `MAX_MS` 축소.
+- 검증: 빌드 SUCCESS(경고 0), COM5 업로드, 실기에서 순서/여유/바 부드러움 확인 완료.
+
 ## ⏭️ 이후 단계
 
 - **Stage 5(선택)**: LVGL 도입 (HAL 레이어 이미 분리 → `display::gfx()`로 flush 콜백 연결).
