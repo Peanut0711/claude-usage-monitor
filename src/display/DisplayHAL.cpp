@@ -331,11 +331,13 @@ void drawMetricCard(int yc, const char* label, float pct, const String& reset,
         drawSparks(sx, by + bh / 2, pop, barColor, pastel);
     }
 
-    // Reset countdown.
+    // Reset countdown — vertically centered between the bar bottom (yc+54) and
+    // the card bottom (yc+82), i.e. at yc+68, using a middle datum so the font's
+    // real glyph height (not its top padding) is what gets centered.
     canvas.setFont(&fonts::FreeSans9pt7b);
-    canvas.setTextDatum(textdatum_t::top_left);
+    canvas.setTextDatum(textdatum_t::middle_left);
     canvas.setTextColor(rgb(0xC8BEDC));
-    canvas.drawString("Resets in " + reset, bx, yc + 62);
+    canvas.drawString("Resets in " + reset, bx, yc + 68);
 }
 }  // namespace
 

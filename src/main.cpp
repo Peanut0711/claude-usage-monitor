@@ -177,7 +177,7 @@ uint32_t gDurCur = 0, gDurWk = 0;        // per-card climb lengths (cards run on
 // = (% delta) * STEP_MS, capped at MAX_MS. The cards run sequentially: the top
 // (Current) climbs and pops, GAP_MS lets the burst be enjoyed, then the bottom
 // (Weekly) climbs and pops.
-constexpr uint32_t STEP_MS = 100;        // time per 1% of climb
+constexpr uint32_t STEP_MS = 50;         // time per 1% of climb
 constexpr uint32_t MAX_MS  = 3000;       // cap for a large jump
 constexpr uint32_t POP_MS  = 600;        // spark/flash fade after a card lands
 constexpr uint32_t GAP_MS  = 250;        // pause after top's pop, before bottom climbs
