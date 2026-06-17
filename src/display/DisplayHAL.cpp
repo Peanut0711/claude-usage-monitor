@@ -302,10 +302,12 @@ void drawSparks(int x, int y, float pop, uint32_t base, uint32_t pastel) {
 // The dynamic part of a card (big %, bar, spark) — the only thing that changes
 // during a count-up. Drawn at absolute coords; the card background must already
 // be present. Shared by the full render and the partial-band render.
-void drawCardContent(int yc, float pct, uint32_t barColor, float pop) {
+// `pop` drives the spark burst; `glow` drives the white-tinted bar/number flash
+// (they're decoupled so the glow can lag the sparks slightly).
+void drawCardContent(int yc, float pct, uint32_t barColor, float pop, float glow) {
     if (pct < 0) pct = 0; if (pct > 100) pct = 100;
     const int cx = 12, cw = canvas.width() - 24;
-    uint32_t pastel = lerpColor(barColor, 0xFFFFFF, 0.6f);
+    uint32_t pastel = lerpColor(barColor, 0xFFFFFF, 0.38f);   // flash peak: 38% toward white
 
     // Big percentage — glows toward the card's pastel tone as it lands. Centered
     // vertically between the card top (yc) and the bar top (yc+42) -> yc+21.
@@ -313,13 +315,13 @@ void drawCardContent(int yc, float pct, uint32_t barColor, float pop) {
     snprintf(buf, sizeof(buf), "%d%%", (int)(pct + 0.5f));
     canvas.setFont(&NexonNum16);
     canvas.setTextDatum(textdatum_t::middle_left);
-    canvas.setTextColor(rgb(pop > 0 ? lerpColor(T_TITLE, pastel, pop) : T_TITLE));
+    canvas.setTextColor(rgb(glow > 0 ? lerpColor(T_TITLE, pastel, glow) : T_TITLE));
     canvas.drawString(buf, cx + 18, yc + 24);     // even ~6px gaps: number/bar/reset
 
     const int bx = cx + 18, bw = cw - 36, by = yc + 42, bh = 12, r = 6;
     canvas.fillRoundRect(bx, by, bw, bh, r, rgb(T_TRACK));
     int fw = (int)(bw * pct / 100.0f);
-    uint32_t fill = (pop > 0) ? lerpColor(barColor, pastel, pop) : barColor;
+    uint32_t fill = (glow > 0) ? lerpColor(barColor, pastel, glow) : barColor;
     int filled = fw < bh ? bh : fw;
     if (fw > 0) canvas.fillRoundRect(bx, by, filled, bh, r, rgb(fill));
 
@@ -333,7 +335,7 @@ void drawMetricCard(int yc, const char* label, float pct, const String& reset,
                     uint32_t barColor, float pop = 0.0f) {
     const int cx = 12, cw = canvas.width() - 24, ch = 82;
     canvas.fillRoundRect(cx, yc, cw, ch, 10, rgb(T_CARD));
-    drawCardContent(yc, pct, barColor, pop);
+    drawCardContent(yc, pct, barColor, pop, pop);   // full render: glow == pop (both ~0 here)
     drawPill(label, cx + cw - 16, yc + 8);
 
     // Reset countdown — vertically centered between the bar bottom (yc+54) and
@@ -348,7 +350,7 @@ void drawMetricCard(int yc, const char* label, float pct, const String& reset,
 // Redraw ONLY one card's dynamic content and push ONLY that region to the LCD.
 // The static card (background, pill, reset text) must already be on screen from a
 // prior full drawDashboard(); we never touch the pill or the rounded corners.
-void drawCardBand(int yc, float pct, uint32_t barColor, float pop) {
+void drawCardBand(int yc, float pct, uint32_t barColor, float pop, float glow) {
     const int cx = 12, cw = canvas.width() - 24;
     // Clear the changing areas to card bg: number (left) and the bar+spark band.
     // The band stops at yc+59 so it never touches the reset text (~yc+61+). Up-
@@ -356,7 +358,7 @@ void drawCardBand(int yc, float pct, uint32_t barColor, float pop) {
     // the clip, so it's drawn but never pushed -> invisible, no clipping the text.
     canvas.fillRect(cx + 16, yc + 7,  172,     30, rgb(T_CARD));   // number
     canvas.fillRect(cx + 16, yc + 28, cw - 20, 31, rgb(T_CARD));   // bar + sparks (right room)
-    drawCardContent(yc, pct, barColor, pop);
+    drawCardContent(yc, pct, barColor, pop, glow);
     // Transfer only the bounding box of the changed region (clip the push).
     lcd.setClipRect(cx + 16, yc + 7, cw - 20, 52);
     canvas.pushSprite(0, 0);
@@ -394,9 +396,10 @@ void drawDashboard(const Dashboard& d) {
 // Count-up frame: redraw + push ONLY the two cards' dynamic content (big %, bar,
 // spark). ~10x less to render and transfer than a full drawDashboard, so the
 // count-up animates well above 30fps. Requires a prior full drawDashboard().
-void drawDashboardBands(float curPct, float wkPct, float curPop, float wkPop) {
-    drawCardBand(34,  curPct, T_CUR, curPop);
-    drawCardBand(118, wkPct,  T_WK,  wkPop);
+void drawDashboardBands(float curPct, float wkPct, float curPop, float wkPop,
+                        float curGlow, float wkGlow) {
+    drawCardBand(34,  curPct, T_CUR, curPop, curGlow);
+    drawCardBand(118, wkPct,  T_WK,  wkPop,  wkGlow);
 }
 
 void drawDetail(const Detail& d) {

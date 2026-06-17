@@ -180,8 +180,10 @@ uint32_t gDurCur = 0, gDurWk = 0;        // per-card climb lengths
 // Each card pops when it lands.
 constexpr uint32_t STEP_MS = 26;         // time per 1% of climb (~1 frame; 100% = 2.6s)
 constexpr uint32_t MAX_MS  = 3000;       // cap for a large jump (>= 100%*STEP_MS)
-constexpr uint32_t REST_MS = 200;        // pause after landing before the fanfare bursts
+constexpr uint32_t HOLD_MS = 150;        // hold the start frame before the climb begins
+constexpr uint32_t REST_MS = 150;        // pause after landing before the fanfare bursts
 constexpr uint32_t FAN_MS  = 500;        // fanfare burst fade length (after the rest)
+constexpr uint32_t GLOW_DELAY = 0;       // bar/number white-glow lag behind the spark burst (0 = synced with the final tick)
 
 // IO12 cycles pages: dashboard -> detail -> history.
 enum { PAGE_DASH = 0, PAGE_DETAIL = 1, PAGE_HISTORY = 2, PAGE_COUNT = 3 };
@@ -224,11 +226,12 @@ String fmtUptime() {
 
 // Draw the dashboard from the currently-shown (animated) values, with optional
 // landing-pop intensity per card.
-void drawDashFrame(float curPop, float wkPop, bool full = true) {
+void drawDashFrame(float curPop, float wkPop,
+                   float curGlow = 0, float wkGlow = 0, bool full = true) {
     // Count-up frames after the first only redraw + push the two cards' dynamic
     // content (numbers/bars/sparks) -> much faster than a full-screen redraw.
     if (!full) {
-        display::drawDashboardBands(gShownCur, gShownWk, curPop, wkPop);
+        display::drawDashboardBands(gShownCur, gShownWk, curPop, wkPop, curGlow, wkGlow);
         return;
     }
     time_t now = time(nullptr);
@@ -294,35 +297,47 @@ static inline float easeOut(float t) {
 // fades finish.
 void stepCountUp() {
     uint32_t el = millis() - gAnimStart;
-    float popCurI = 0.0f, popWkI = 0.0f;
+    // Hold the start frame (bars at their start value) for HOLD_MS before the
+    // climb begins, so a fresh refresh doesn't jump straight into motion.
+    uint32_t elc = (el > HOLD_MS) ? el - HOLD_MS : 0;
+    float popCurI = 0.0f, popWkI = 0.0f;     // spark intensity
+    float glowCurI = 0.0f, glowWkI = 0.0f;   // bar/number white-glow (lags by GLOW_DELAY)
     bool full = gNeedFullDash;     // first frame full-redraws; the rest push bands
     gNeedFullDash = false;
 
-    if (el < gDurCur) {                              // Current climbing (no fanfare yet)
-        float p = easeOut((float)el / gDurCur);
-        gShownCur = gStartCur + (gTgtCur - gStartCur) * p;
-    } else {                                         // landed (100%) -> rest, then burst+fade
-        gShownCur = gTgtCur;
-        uint32_t since = el - gDurCur;
+    // Hold back the final 1% so the last number tick lands WITH the fanfare burst.
+    float climbCur = (gTgtCur - gStartCur >= 1.0f) ? gTgtCur - 1.0f : gTgtCur;
+    if (elc < gDurCur) {                             // Current climbing to target-1
+        float p = easeOut((float)elc / gDurCur);
+        gShownCur = gStartCur + (climbCur - gStartCur) * p;
+    } else {                                         // landed -> rest, then burst+fade
+        uint32_t since = elc - gDurCur;
+        gShownCur = (since >= REST_MS) ? gTgtCur : climbCur;   // final +1 ticks at the burst
         if (gPopCur && since >= REST_MS && since < REST_MS + FAN_MS)
             popCurI = 1.0f - (float)(since - REST_MS) / FAN_MS;
+        if (gPopCur && since >= REST_MS + GLOW_DELAY && since < REST_MS + GLOW_DELAY + FAN_MS)
+            glowCurI = 1.0f - (float)(since - REST_MS - GLOW_DELAY) / FAN_MS;
     }
 
-    if (el < gDurWk) {                               // Weekly climbing (no fanfare yet)
-        float p = easeOut((float)el / gDurWk);
-        gShownWk = gStartWk + (gTgtWk - gStartWk) * p;
-    } else {                                         // landed (100%) -> rest, then burst+fade
-        gShownWk = gTgtWk;
-        uint32_t since = el - gDurWk;
+    float climbWk = (gTgtWk - gStartWk >= 1.0f) ? gTgtWk - 1.0f : gTgtWk;
+    if (elc < gDurWk) {                              // Weekly climbing to target-1
+        float p = easeOut((float)elc / gDurWk);
+        gShownWk = gStartWk + (climbWk - gStartWk) * p;
+    } else {                                         // landed -> rest, then burst+fade
+        uint32_t since = elc - gDurWk;
+        gShownWk = (since >= REST_MS) ? gTgtWk : climbWk;      // final +1 ticks at the burst
         if (gPopWk && since >= REST_MS && since < REST_MS + FAN_MS)
             popWkI = 1.0f - (float)(since - REST_MS) / FAN_MS;
+        if (gPopWk && since >= REST_MS + GLOW_DELAY && since < REST_MS + GLOW_DELAY + FAN_MS)
+            glowWkI = 1.0f - (float)(since - REST_MS - GLOW_DELAY) / FAN_MS;
     }
 
-    uint32_t endCur = gDurCur + (gPopCur ? REST_MS + FAN_MS : 0);
-    uint32_t endWk  = gDurWk  + (gPopWk  ? REST_MS + FAN_MS : 0);
-    if (el >= endCur && el >= endWk) gAnimating = false;
+    // The glow ends last (REST + GLOW_DELAY + FAN); keep animating until then.
+    uint32_t endCur = gDurCur + (gPopCur ? REST_MS + GLOW_DELAY + FAN_MS : 0);
+    uint32_t endWk  = gDurWk  + (gPopWk  ? REST_MS + GLOW_DELAY + FAN_MS : 0);
+    if (elc >= endCur && elc >= endWk) gAnimating = false;
 
-    drawDashFrame(popCurI, popWkI, full);
+    drawDashFrame(popCurI, popWkI, glowCurI, glowWkI, full);
 }
 
 // Snap the animation straight to its target (used when leaving the dashboard).

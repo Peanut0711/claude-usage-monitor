@@ -75,8 +75,10 @@ void drawDashboard(const Dashboard& d);
 
 // Count-up frame: redraw + push only the cards' dynamic content (numbers, bars,
 // sparks) for a fast partial update. Needs a prior full drawDashboard() to have
-// painted the static chrome. curPop/wkPop are the per-card landing-pop intensity.
-void drawDashboardBands(float curPct, float wkPct, float curPop, float wkPop);
+// painted the static chrome. curPop/wkPop drive the spark burst; curGlow/wkGlow
+// drive the white-tinted bar/number flash (decoupled so the glow can lag).
+void drawDashboardBands(float curPct, float wkPct, float curPop, float wkPop,
+                        float curGlow, float wkGlow);
 
 // One frame of the "refreshing" animation (bouncing logo + dots). Call with
 // an incrementing frame counter while a poll is in flight.
