@@ -315,7 +315,7 @@ void drawCardContent(int yc, float pct, uint32_t barColor, float pop, float glow
     snprintf(buf, sizeof(buf), "%d%%", (int)(pct + 0.5f));
     canvas.setFont(&NexonNum16);
     canvas.setTextDatum(textdatum_t::middle_left);
-    canvas.setTextColor(rgb(glow > 0 ? lerpColor(T_TITLE, pastel, glow) : T_TITLE));
+    canvas.setTextColor(rgb(T_TITLE));            // number stays steady (only the bar flashes)
     canvas.drawString(buf, cx + 18, yc + 24);     // even ~6px gaps: number/bar/reset
 
     const int bx = cx + 18, bw = cw - 36, by = yc + 42, bh = 12, r = 6;
