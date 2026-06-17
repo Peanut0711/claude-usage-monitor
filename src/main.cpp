@@ -412,6 +412,9 @@ void handleKeypad() {
 
 void enterRunning() {
     gState = State::Running;
+    // The no-PIN boot path skips enterUnlock(), so touch (and the Home-button
+    // callback) may not be initialised yet. Bring it up here if needed.
+    if (!touch::available()) gTouchOn = touch::begin();
     touch::homePressed();               // discard any press from the unlock phase
     portal::stop();
     configTime(0, 0, CUM_NTP_SERVER);   // UTC epoch for reset countdowns
