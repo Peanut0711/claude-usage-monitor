@@ -13,6 +13,7 @@
 #include "board_pins.h"
 #include "config.h"
 #include "display/DisplayHAL.h"
+#include "input/Proximity.h"
 #include "input/Touch.h"
 #include "net/Api.h"
 #include "net/Net.h"
@@ -33,6 +34,7 @@ bool     gPendTimeRender = false;  // re-render once NTP syncs (refresh "Resets 
 
 String   gPin;           // PIN digits typed on the touch keypad
 bool     gTouchOn = false;
+bool     gProxOn  = false;   // LTR-553 proximity available -> wake-on-approach
 bool     gWasTouched = false;
 
 // --- Backlight / inactivity -------------------------------------------------
@@ -525,6 +527,7 @@ void enterRunning() {
     // The no-PIN boot path skips enterUnlock(), so touch (and the Home-button
     // callback) may not be initialised yet. Bring it up here if needed.
     if (!touch::available()) gTouchOn = touch::begin();
+    if (!prox::available())  gProxOn  = prox::begin();   // wake-on-approach
     touch::homePressed();               // discard any press from the unlock phase
     portal::stop();
     configTime(0, 0, CUM_NTP_SERVER);   // UTC epoch for reset countdowns
@@ -691,6 +694,14 @@ void loop() {
         case State::Running: {
             bool asleep = screenAsleep();
 
+            // Proximity wake: detect a far->near transition (a hand approaching).
+            // Evaluated every iteration so the rising edge is never missed; only
+            // used to wake from inactivity sleep, not a deliberate manual-off.
+            static bool proxWas = false;
+            bool proxNow  = gProxOn && prox::near();
+            bool proxRise = proxNow && !proxWas;
+            proxWas = proxNow;
+
             // IO16: wake (show current view + animated refresh) if off, else force off.
             if (io16Pressed()) {
                 if (asleep) {
@@ -709,11 +720,12 @@ void loop() {
                 break;
             }
 
-            if (asleep) {                            // wake on double-tap or IO12
+            if (asleep) {                            // wake on double-tap / IO12 / approach
                 // IO12 wakes to the current view only; the press is consumed
                 // here so it won't also advance the page. The next (released
-                // then re-pressed) IO12 cycles pages as usual.
-                if (doubleTapDetected() || io12Pressed()) {
+                // then re-pressed) IO12 cycles pages as usual. Proximity wakes
+                // only from inactivity sleep (not after a manual IO16 off).
+                if (doubleTapDetected() || io12Pressed() || (proxRise && !gManualOff)) {
                     gManualOff = false;
                     noteInput();
                     renderCurrentView();             // last view -> veil backdrop
