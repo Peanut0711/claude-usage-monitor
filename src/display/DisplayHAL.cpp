@@ -13,6 +13,7 @@
 #include "claudecode_logo.h"
 #include "claudecode_wordmark.h"
 #include "nexon_num_16.h"   // NEXON Lv1 Gothic Bold, digits + '%' (big % number)
+#include "nexon_text.h"     // NEXON Lv1 Gothic Bold, ASCII (reset countdown)
 
 namespace {
 LGFX_TDisplayS3Pro lcd;
@@ -298,29 +299,23 @@ void drawSparks(int x, int y, float pop, uint32_t base, uint32_t pastel) {
     }
 }
 
-void drawMetricCard(int yc, const char* label, float pct, const String& reset,
-                    uint32_t barColor, float pop = 0.0f) {
+// The dynamic part of a card (big %, bar, spark) — the only thing that changes
+// during a count-up. Drawn at absolute coords; the card background must already
+// be present. Shared by the full render and the partial-band render.
+void drawCardContent(int yc, float pct, uint32_t barColor, float pop) {
     if (pct < 0) pct = 0; if (pct > 100) pct = 100;
-    const int cx = 12, cw = canvas.width() - 24, ch = 82;
-    canvas.fillRoundRect(cx, yc, cw, ch, 10, rgb(T_CARD));
-
-    // Landing pop uses a pastel tint of THIS card's color (orange / lime mixed
-    // with white) instead of harsh pure white.
+    const int cx = 12, cw = canvas.width() - 24;
     uint32_t pastel = lerpColor(barColor, 0xFFFFFF, 0.6f);
 
-    // Big percentage — glows toward the card's pastel tone as it lands.
+    // Big percentage — glows toward the card's pastel tone as it lands. Centered
+    // vertically between the card top (yc) and the bar top (yc+42) -> yc+21.
     char buf[8];
     snprintf(buf, sizeof(buf), "%d%%", (int)(pct + 0.5f));
     canvas.setFont(&NexonNum16);
-    // Center the number vertically between the card top (yc) and the bar top
-    // (yc+42) -> yc+21, with a middle datum so the font's metrics don't bias it.
     canvas.setTextDatum(textdatum_t::middle_left);
     canvas.setTextColor(rgb(pop > 0 ? lerpColor(T_TITLE, pastel, pop) : T_TITLE));
-    canvas.drawString(buf, cx + 18, yc + 21);
+    canvas.drawString(buf, cx + 18, yc + 24);     // even ~6px gaps: number/bar/reset
 
-    drawPill(label, cx + cw - 16, yc + 8);
-
-    // Bar — pushed down so the big % has breathing room above it.
     const int bx = cx + 18, bw = cw - 36, by = yc + 42, bh = 12, r = 6;
     canvas.fillRoundRect(bx, by, bw, bh, r, rgb(T_TRACK));
     int fw = (int)(bw * pct / 100.0f);
@@ -328,19 +323,44 @@ void drawMetricCard(int yc, const char* label, float pct, const String& reset,
     int filled = fw < bh ? bh : fw;
     if (fw > 0) canvas.fillRoundRect(bx, by, filled, bh, r, rgb(fill));
 
-    // Little spark burst at the bar's leading edge as it lands.
-    if (pop > 0.0f) {
+    if (pop > 0.0f) {                       // spark burst at the bar's leading edge
         int sx = bx + filled; if (sx > bx + bw) sx = bx + bw;
         drawSparks(sx, by + bh / 2, pop, barColor, pastel);
     }
+}
+
+void drawMetricCard(int yc, const char* label, float pct, const String& reset,
+                    uint32_t barColor, float pop = 0.0f) {
+    const int cx = 12, cw = canvas.width() - 24, ch = 82;
+    canvas.fillRoundRect(cx, yc, cw, ch, 10, rgb(T_CARD));
+    drawCardContent(yc, pct, barColor, pop);
+    drawPill(label, cx + cw - 16, yc + 8);
 
     // Reset countdown — vertically centered between the bar bottom (yc+54) and
     // the card bottom (yc+82), i.e. at yc+68, using a middle datum so the font's
     // real glyph height (not its top padding) is what gets centered.
-    canvas.setFont(&fonts::FreeSans9pt7b);
+    canvas.setFont(&NexonText);
     canvas.setTextDatum(textdatum_t::middle_left);
     canvas.setTextColor(rgb(0xC8BEDC));
-    canvas.drawString("Resets in " + reset, bx, yc + 68);
+    canvas.drawString("Resets in " + reset, cx + 18, yc + 68);
+}
+
+// Redraw ONLY one card's dynamic content and push ONLY that region to the LCD.
+// The static card (background, pill, reset text) must already be on screen from a
+// prior full drawDashboard(); we never touch the pill or the rounded corners.
+void drawCardBand(int yc, float pct, uint32_t barColor, float pop) {
+    const int cx = 12, cw = canvas.width() - 24;
+    // Clear the changing areas to card bg: number (left) and the bar+spark band.
+    // The band stops at yc+59 so it never touches the reset text (~yc+61+). Up-
+    // sparks (to ~yc+31) are inside; the lone down-spark (~yc+62) falls outside
+    // the clip, so it's drawn but never pushed -> invisible, no clipping the text.
+    canvas.fillRect(cx + 16, yc + 7,  172,     30, rgb(T_CARD));   // number
+    canvas.fillRect(cx + 16, yc + 28, cw - 20, 31, rgb(T_CARD));   // bar + sparks (right room)
+    drawCardContent(yc, pct, barColor, pop);
+    // Transfer only the bounding box of the changed region (clip the push).
+    lcd.setClipRect(cx + 16, yc + 7, cw - 20, 52);
+    canvas.pushSprite(0, 0);
+    lcd.clearClipRect();
 }
 }  // namespace
 
@@ -369,6 +389,14 @@ void drawDashboard(const Dashboard& d) {
     canvas.setTextColor(rgb(T_CORAL));
     canvas.drawString("* " + d.status, canvas.width() / 2, 204);
     present();
+}
+
+// Count-up frame: redraw + push ONLY the two cards' dynamic content (big %, bar,
+// spark). ~10x less to render and transfer than a full drawDashboard, so the
+// count-up animates well above 30fps. Requires a prior full drawDashboard().
+void drawDashboardBands(float curPct, float wkPct, float curPop, float wkPop) {
+    drawCardBand(34,  curPct, T_CUR, curPop);
+    drawCardBand(118, wkPct,  T_WK,  wkPop);
 }
 
 void drawDetail(const Detail& d) {

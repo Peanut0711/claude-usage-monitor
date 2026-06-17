@@ -73,6 +73,11 @@ struct Dashboard {
 // pill labels and reset countdowns, and a status line.
 void drawDashboard(const Dashboard& d);
 
+// Count-up frame: redraw + push only the cards' dynamic content (numbers, bars,
+// sparks) for a fast partial update. Needs a prior full drawDashboard() to have
+// painted the static chrome. curPop/wkPop are the per-card landing-pop intensity.
+void drawDashboardBands(float curPct, float wkPct, float curPop, float wkPop);
+
 // One frame of the "refreshing" animation (bouncing logo + dots). Call with
 // an incrementing frame counter while a poll is in flight.
 void drawRefreshAnim(int frame);

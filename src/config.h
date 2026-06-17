@@ -12,6 +12,9 @@
 // to inspect touch coordinates. Set to 1 to enable; 0 = normal boot.
 #define CUM_TOUCH_TEST 0
 
+// Diagnostic: log the measured count-up frame rate to serial. Set to 0 to mute.
+#define CUM_FPS_DEBUG 0
+
 // Local, git-ignored secrets (AP password). Falls back to a placeholder so the
 // project still builds without it — but change it before trusting setup mode.
 #if __has_include("secrets.h")

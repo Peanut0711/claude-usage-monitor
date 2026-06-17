@@ -97,5 +97,13 @@ def convert(ttf_path, out_path, var_name, size_pt=18, first=0x25, last=0x39, dpi
           (out_path, len(glyphs), len(bitmaps), y_advance))
 
 if __name__ == "__main__":
-    convert(sys.argv[1], sys.argv[2], sys.argv[3],
-            size_pt=int(sys.argv[4]) if len(sys.argv) > 4 else 18)
+    # args: ttf out var [size_pt] [first_hex] [last_hex] [despur 0/1]
+    kw = {}
+    if len(sys.argv) > 4:
+        kw["size_pt"] = int(sys.argv[4])
+    if len(sys.argv) > 6:
+        kw["first"] = int(sys.argv[5], 0)
+        kw["last"] = int(sys.argv[6], 0)
+    if len(sys.argv) > 7:
+        kw["despur"] = bool(int(sys.argv[7]))
+    convert(sys.argv[1], sys.argv[2], sys.argv[3], **kw)

@@ -168,6 +168,7 @@ float    gShownCur = 0, gShownWk = 0;   // values currently on screen
 float    gStartCur = 0, gStartWk = 0;   // where this animation began
 float    gTgtCur   = 0, gTgtWk   = 0;   // where it's heading
 bool     gAnimating = false;
+bool     gNeedFullDash = false;          // next count-up frame must do a full redraw
 bool     gPopCur = false, gPopWk = false;  // pop only the card(s) that grew
 uint32_t gAnimStart = 0;
 uint32_t gDurCur = 0, gDurWk = 0;        // per-card climb lengths (cards run one
@@ -223,7 +224,13 @@ String fmtUptime() {
 
 // Draw the dashboard from the currently-shown (animated) values, with optional
 // landing-pop intensity per card.
-void drawDashFrame(float curPop, float wkPop) {
+void drawDashFrame(float curPop, float wkPop, bool full = true) {
+    // Count-up frames after the first only redraw + push the two cards' dynamic
+    // content (numbers/bars/sparks) -> much faster than a full-screen redraw.
+    if (!full) {
+        display::drawDashboardBands(gShownCur, gShownWk, curPop, wkPop);
+        return;
+    }
     time_t now = time(nullptr);
     display::Dashboard d;
     d.current      = gShownCur;
@@ -263,6 +270,7 @@ void startCountUp(float cur, float wk, bool fromZero) {
     gDurWk  = climbMs(wk  - gStartWk);
     gAnimStart = millis();
     gAnimating = true;
+    gNeedFullDash = true;     // first frame paints the whole dashboard; rest = bands
 }
 
 // Advance one animation frame and draw it. The two cards run in sequence:
@@ -275,13 +283,15 @@ void startCountUp(float cur, float wk, bool fromZero) {
 void stepCountUp() {
     uint32_t el = millis() - gAnimStart;
     float popCurI = 0.0f, popWkI = 0.0f;
+    bool full = gNeedFullDash;     // first frame full-redraws; the rest push bands
+    gNeedFullDash = false;
 
     // --- 1. Top card (Current) climbs; bottom waits at its start value. ---
     if (el < gDurCur) {
         float t = (float)el / gDurCur;
         gShownCur = gStartCur + (gTgtCur - gStartCur) * t;
         gShownWk  = gStartWk;
-        drawDashFrame(0.0f, 0.0f);
+        drawDashFrame(0.0f, 0.0f, full);
         return;
     }
     gShownCur = gTgtCur;                              // Current landed
@@ -293,7 +303,7 @@ void stepCountUp() {
     uint32_t wkDelay = gPopCur ? (POP_MS + GAP_MS) : 0;
     if (curSince < wkDelay) {
         gShownWk = gStartWk;
-        drawDashFrame(popCurI, 0.0f);
+        drawDashFrame(popCurI, 0.0f, full);
         return;
     }
 
@@ -309,7 +319,7 @@ void stepCountUp() {
             popWkI = 1.0f - (float)wkPopSince / POP_MS;
         if (wkPopSince >= POP_MS) gAnimating = false;  // everything done
     }
-    drawDashFrame(popCurI, popWkI);
+    drawDashFrame(popCurI, popWkI, full);
 }
 
 // Snap the animation straight to its target (used when leaving the dashboard).
@@ -670,7 +680,20 @@ void loop() {
             // the refresh bob while a poll is in flight, else idle.
             if (gAnimating && gPage == PAGE_DASH) {
                 stepCountUp();
-                delay(8);                            // ~fast frames during count-up
+                delay(2);                            // partial redraw is cheap now
+#if CUM_FPS_DEBUG
+                static uint32_t lastUs = 0, accUs = 0; static int nf = 0;
+                uint32_t now = micros();
+                if (lastUs && (now - lastUs) < 500000) {   // skip cross-animation gaps
+                    accUs += now - lastUs;
+                    if (++nf >= 20) {
+                        Serial.printf("[fps] count-up: %.1f fps (%.1f ms/frame)\n",
+                                      1000000.0f * nf / accUs, accUs / 1000.0f / nf);
+                        accUs = 0; nf = 0;
+                    }
+                }
+                lastUs = now;
+#endif
             } else if (gPollRunning && gPollAnimate && gPage == PAGE_DASH) {
                 display::drawRefreshAnim(gAnimFrame++);
                 delay(120);                          // slower bob
