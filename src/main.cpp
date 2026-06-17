@@ -262,6 +262,10 @@ static uint32_t climbMs(float deltaPct) {
 void startCountUp(float cur, float wk, bool fromZero) {
     gStartCur = fromZero ? 0.0f : gShownCur;
     gStartWk  = fromZero ? 0.0f : gShownWk;
+    // A reset (usage drops when the 5h/7d window rolls over) must not animate a
+    // backwards shrink -> snap that card straight to the new (lower) value.
+    if (cur < gStartCur) gStartCur = cur;
+    if (wk  < gStartWk ) gStartWk  = wk;
     gShownCur = gStartCur; gShownWk = gStartWk;   // draw the first frame at the start
     gTgtCur = cur; gTgtWk = wk;
     gPopCur = (cur > gStartCur + 0.5f);           // pop a card only if it grew >=1%
