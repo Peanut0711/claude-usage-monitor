@@ -48,6 +48,26 @@ bool sealWifiSlot(int i, const String& ssid, const String& pass) {
     return ok;
 }
 
+// Seal the token under the PIN key (pin == CUM_PIN_LEN) or the device key
+// (empty pin) and record which scheme was used. Shared by provision() and
+// updateToken(). Does NOT touch the WiFi list or the provisioned flag.
+bool sealToken(const String& token, const String& pin) {
+    bool pinned = (pin.length() == CUM_PIN_LEN);
+    uint8_t key[crypto::KEY_LEN];
+    bool ok = pinned ? crypto::derivePinKey(pin, key)
+                     : crypto::deriveDeviceKey(key);
+    if (ok) {
+        ok = sealAndStore(CUM_NVS_TOKEN_BLOB, key,
+                          (const uint8_t*)token.c_str(), token.length());
+    }
+    if (ok) {
+        storage::setPinFails(0);
+        storage::setTokenPinned(pinned);
+    }
+    memset(key, 0, sizeof(key));
+    return ok;
+}
+
 // Decrypt one stored WiFi slot. Returns false if missing/corrupt.
 bool loadWifiSlot(int i, String& ssidOut, String& passOut) {
     uint8_t blob[crypto::OVERHEAD + WIFI_PT_MAX];
@@ -98,27 +118,20 @@ bool provision(const String& ssid, const String& pass,
     if (token.length() == 0 || token.length() > CUM_TOKEN_MAX_LEN) return false;
     if (pin.length() != 0 && pin.length() != CUM_PIN_LEN) return false;
 
-    // Empty PIN -> seal the token under the device key (no unlock screen).
-    bool pinned = (pin.length() == CUM_PIN_LEN);
-    uint8_t key[crypto::KEY_LEN];
-    bool ok = pinned ? crypto::derivePinKey(pin, key)
-                     : crypto::deriveDeviceKey(key);
-
-    if (ok) {
-        // Fresh setup: WiFi list becomes just this one network.
-        ok = sealWifiSlot(0, ssid, pass) &&
-             sealAndStore(CUM_NVS_TOKEN_BLOB, key,
-                          (const uint8_t*)token.c_str(), token.length());
-    }
-
-    if (ok) {
-        storage::setWifiCount(1);
-        storage::setPinFails(0);
-        storage::setTokenPinned(pinned);
-        storage::setProvisioned(true);
-    }
-    memset(key, 0, sizeof(key));
+    // Fresh setup: WiFi list becomes just this one network, then seal the token
+    // (under the PIN key when a PIN was given, else the device key).
+    bool ok = sealWifiSlot(0, ssid, pass);
+    if (ok) storage::setWifiCount(1);
+    if (ok) ok = sealToken(token, pin);
+    if (ok) storage::setProvisioned(true);
     return ok;
+}
+
+bool updateToken(const String& token, const String& pin) {
+    if (!isProvisioned()) return false;                 // keep WiFi list intact
+    if (token.length() == 0 || token.length() > CUM_TOKEN_MAX_LEN) return false;
+    if (pin.length() != 0 && pin.length() != CUM_PIN_LEN) return false;
+    return sealToken(token, pin);
 }
 
 bool tokenNeedsPin() {

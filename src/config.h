@@ -35,6 +35,10 @@
 // --- WiFi (station) ---------------------------------------------------------
 #define CUM_WIFI_CONNECT_TIMEOUT_MS  20000  // give up + fall back to setup
 #define CUM_WIFI_RETRY_MS            500
+// Whole-sequence connect attempts before falling back to setup mode. A single
+// post-boot scan can transiently return 0 networks (radio still settling), so
+// retry the scan a couple of times before assuming the known APs are absent.
+#define CUM_WIFI_CONNECT_RETRIES     3
 // Pre-commit verify (setup portal): how long to wait for the STA link to come
 // up while validating the entered WiFi + token. Kept well under the browser's
 // POST timeout so the result page still reaches the phone.

@@ -51,6 +51,11 @@ String htmlEscape(const String& s) {
 // Picking from the dropdown copies the SSID into the text input (which stays
 // the submitted source of truth, so hidden/manual SSIDs still work).
 String setupHtml() {
+    // When already provisioned, the device is in setup only to add/fix a WiFi
+    // network (e.g. a new location). Render an "Add network" form where the
+    // token & PIN are clearly optional, so re-entering everything isn't implied.
+    bool provisioned = credentials::isProvisioned();
+
     String h = R"HTML(<!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Claude Usage Monitor</title><style>
@@ -62,9 +67,17 @@ textarea{height:90px}button{margin-top:20px;width:100%;padding:14px;border:0;
 border-radius:8px;background:#d97757;color:#fff;font-size:16px;font-weight:600}
 small{color:#8a9099}ol{color:#c8ccd0;padding-left:20px;font-size:13px;margin:6px 0}
 li{margin:3px 0}code{background:#1a1d24;padding:1px 5px;border-radius:4px;color:#d97757}
-b{color:#ececec}</style></head><body>
-<h1>Claude Usage Monitor</h1>
-<form method="POST" action="/save">
+b{color:#ececec}.banner{background:#15241a;border:1px solid #2f6b45;color:#bfe6cd;
+padding:10px 12px;border-radius:8px;font-size:13px;margin:6px 0 4px}</style></head><body>
+<h1>Claude Usage Monitor</h1>)HTML";
+
+    if (provisioned) {
+        h += "<div class=\"banner\">Add or update a WiFi network. Your existing "
+             "networks and token are <b>kept</b> &mdash; you only need the WiFi "
+             "fields here.</div>";
+    }
+
+    h += R"HTML(<form method="POST" action="/save">
 <label>WiFi network (2.4GHz only)</label>
 <select onchange="document.getElementById('ssid').value=this.value">)HTML";
 
@@ -81,8 +94,19 @@ b{color:#ececec}</style></head><body>
 
     h += R"HTML(</select>
 <input id="ssid" name="ssid" maxlength="32" placeholder="or type SSID" required>
-<label>WiFi password</label><input name="pass" type="password" maxlength="64">
-<label>OAuth token</label>
+<label>WiFi password</label><input name="pass" type="password" maxlength="64">)HTML";
+
+    if (provisioned) {
+        // Token already stored: keep it blank to preserve it; the steps are noise.
+        h += R"HTML(<label>OAuth token (optional)</label>
+<textarea name="token" placeholder="leave blank to keep your current token"></textarea>
+<small>Only fill this in to replace the stored token.</small>
+<label>PIN (4 digits &mdash; optional)</label>
+<input name="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4"
+ placeholder="only needed if you change the token above">
+<small>The PIN applies to the token; leave both blank when just adding WiFi.</small>)HTML";
+    } else {
+        h += R"HTML(<label>OAuth token</label>
 <textarea name="token" placeholder="sk-ant-oat..."></textarea>
 <small>Get it on a computer (not this phone):</small>
 <ol>
@@ -95,9 +119,10 @@ b{color:#ececec}</style></head><body>
 <input name="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4"
  placeholder="leave blank to skip the lock screen">
 <small>A PIN encrypts your token and is asked on every power-up. <b>Leave it blank</b>
-to skip the lock screen &mdash; simpler, and fine when the device stays with you.<br>
-Adding/changing WiFi? Leave token &amp; PIN blank: your token is kept and the
-network is remembered (up to 3, e.g. home + office).</small>
+to skip the lock screen &mdash; simpler, and fine when the device stays with you.</small>)HTML";
+    }
+
+    h += R"HTML(
 <button type="submit">Save &amp; verify</button></form></body></html>)HTML";
     return h;
 }
@@ -172,8 +197,12 @@ void handleSave() {
     token.trim();
     pin.trim();
 
-    // Blank token + already provisioned = change WiFi only, keep the token.
-    bool wifiOnly = (token.length() == 0 && credentials::isProvisioned());
+    // Once provisioned, the token is optional: a blank token keeps the stored
+    // one, a supplied token updates it. Either way the WiFi list is preserved
+    // (this network is added/updated), so re-pasting a token at a new location
+    // never wipes the other remembered networks.
+    bool provisioned = credentials::isProvisioned();
+    bool hasToken    = (token.length() > 0);
 
     String err;
     if (ssid.length() == 0)
@@ -182,11 +211,11 @@ void handleSave() {
         err = "WiFi name too long: " + String(ssid.length()) + " > 32.";
     else if (pass.length() > CUM_PASS_MAX_LEN)
         err = "WiFi password too long: " + String(pass.length()) + " > 64.";
-    else if (!wifiOnly && token.length() == 0)
+    else if (!provisioned && !hasToken)
         err = "Token is empty.";
     else if (token.length() > CUM_TOKEN_MAX_LEN)
         err = "Token too long: " + String(token.length()) + " > 1024.";
-    else if (!wifiOnly && pin.length() != 0 && pin.length() != CUM_PIN_LEN)
+    else if (hasToken && pin.length() != 0 && pin.length() != CUM_PIN_LEN)
         err = "PIN must be 4 digits, or left blank for no PIN (you entered "
               + String(pin.length()) + ").";
 
@@ -208,7 +237,7 @@ void handleSave() {
         return;
     }
 
-    if (!wifiOnly) {
+    if (hasToken) {
         api::Usage u = api::poll(token);
         // The probe authenticates as long as the server responds with the
         // rate-limit headers; 200 (or even a 400 bad-request) means the token
@@ -230,8 +259,16 @@ void handleSave() {
     net::apStaDisconnect();
 
     // --- Commit --------------------------------------------------------------
-    bool ok = wifiOnly ? credentials::addWifi(ssid, pass)
-                       : credentials::provision(ssid, pass, token, pin);
+    // Provisioned: add/update this network (keeping the others) and, if a token
+    // was supplied, re-seal it without disturbing the WiFi list. First-time:
+    // provision from scratch.
+    bool ok;
+    if (provisioned) {
+        ok = credentials::addWifi(ssid, pass);
+        if (ok && hasToken) ok = credentials::updateToken(token, pin);
+    } else {
+        ok = credentials::provision(ssid, pass, token, pin);
+    }
     if (ok) {
         sendProgmem(SAVED_HTML);
         gPending = portal::Event::Provisioned;   // main reboots

@@ -612,7 +612,20 @@ void setup() {
     int n = credentials::loadWifiList(ssids, passwords, CUM_WIFI_MAX);
     int pref = storage::lastWifi();          // 0xFF when nothing recorded yet
     if (pref >= n) pref = -1;                 // stale/absent index -> just scan
-    if (n == 0 || !connectWithAnim(ssids, passwords, n, pref)) {
+
+    // Retry the whole connect sequence before giving up: a transient empty scan
+    // right after boot would otherwise drop us into setup even though a known
+    // network is in range. Only the first attempt uses the fast direct-probe
+    // path; later attempts force a fresh scan (pref = -1).
+    bool connected = false;
+    for (int attempt = 0; n > 0 && attempt < CUM_WIFI_CONNECT_RETRIES; attempt++) {
+        connected = connectWithAnim(ssids, passwords, n, attempt == 0 ? pref : -1);
+        if (connected) break;
+        Serial.printf("[wifi] connect attempt %d/%d failed\n",
+                      attempt + 1, CUM_WIFI_CONNECT_RETRIES);
+        delay(500);
+    }
+    if (!connected) {
         Serial.println("[wifi] connect failed -> setup mode");
         enterSetup();
         return;

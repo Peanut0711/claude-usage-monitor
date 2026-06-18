@@ -32,6 +32,13 @@ bool provision(const String& ssid, const String& pass,
 // CUM_WIFI_MAX is reached. Returns false if not provisioned or on error.
 bool addWifi(const String& ssid, const String& pass);
 
+// Re-seal the OAuth token (and switch PIN/no-PIN sealing) WITHOUT touching the
+// stored WiFi list. Used when an already-provisioned device is given a fresh
+// token during setup, so re-pasting a token never wipes the remembered
+// networks. `pin` of CUM_PIN_LEN seals under the PIN key; empty seals under the
+// device key. Returns false if not provisioned or on crypto/NVS failure.
+bool updateToken(const String& token, const String& pin);
+
 bool isProvisioned();
 
 // --- WiFi (available without the PIN) ---------------------------------------
