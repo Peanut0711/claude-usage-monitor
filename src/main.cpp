@@ -55,6 +55,11 @@ constexpr uint32_t FADE_OUT_MS = 400;
 // little. Set true to honor the full idle-off timeout on USB too.
 constexpr bool     SLEEP_WHEN_CHARGING = false;
 bool     gOnUsb = false;      // cached USB-power state (refreshed ~1/s in applyBacklight)
+// Battery-life estimate: recorded at the moment USB is unplugged, then the drain
+// since (percent dropped / time elapsed) gives a rough %/h and time-left. Only
+// meaningful on battery; -1 = on USB / not tracking.
+int      gDischStartPct = -1;
+uint32_t gDischStartMs  = 0;
 
 void noteInput() { gLastInput = millis(); }
 
@@ -352,6 +357,26 @@ String fmtUptime() {
     return String(m) + "m " + String(s % 60) + "s";
 }
 
+// Rough battery time-left from the drain since the last unplug. Returns "" while
+// charging/untracked, "measuring..." until there's enough drop+time to trust the
+// rate, else "~Hh Mm (R%/h)". A ballpark only: the voltage->% curve is flat in
+// the middle, so the linear extrapolation to 0% can be well off.
+String fmtBattLeft() {
+    if (gDischStartPct < 0) return "";                       // on USB / not tracking
+    int cur = power::percent();
+    int drop = gDischStartPct - cur;
+    uint32_t el = millis() - gDischStartMs;
+    if (drop < 2 || el < 10UL * 60 * 1000) return "measuring...";
+    float ratePerHr = (float)drop * 3600000.0f / (float)el;  // %/hour
+    if (ratePerHr < 0.1f) return "measuring...";
+    float etaHr = cur / ratePerHr;
+    if (etaHr > 99) etaHr = 99;
+    int h = (int)etaHr, m = (int)((etaHr - h) * 60);
+    char b[32];
+    snprintf(b, sizeof(b), "~%dh %dm (%.1f%%/h)", h, m, ratePerHr);
+    return String(b);
+}
+
 // Draw the dashboard from the currently-shown (animated) values, with optional
 // landing-pop intensity per card.
 void drawDashFrame(float curPop, float wkPop,
@@ -503,6 +528,7 @@ void renderCurrentView() {
         d.rssi     = net::rssi();
         d.battery  = power::percent();
         d.charging = power::charging();
+        d.battEst  = fmtBattLeft();
         d.reset5h  = fmtCountdown(gLastUsage.reset5h, now);
         d.reset7d  = fmtCountdown(gLastUsage.reset7d, now);
         d.uptime   = fmtUptime();
@@ -780,10 +806,17 @@ void loop() {
             // the change is picked up on the next idle iteration.
             static int prevCharge = -1;
             int chargeNow = gOnUsb ? 1 : 0;
+            // Start tracking battery drain on unplug (chargeNow 0), stop on plug.
+            auto trackBattery = [&]() {
+                if (chargeNow == 0) { gDischStartPct = power::percent(); gDischStartMs = millis(); }
+                else                { gDischStartPct = -1; }
+            };
             if (prevCharge == -1) {
                 prevCharge = chargeNow;                 // seed without a redraw
+                trackBattery();                         // covers booting on battery
             } else if (prevCharge != chargeNow && !gAnimating && !gPollRunning) {
                 prevCharge = chargeNow;
+                trackBattery();
                 renderCurrentView();
             }
 

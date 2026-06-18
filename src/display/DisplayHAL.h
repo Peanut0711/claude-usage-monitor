@@ -45,6 +45,7 @@ struct Detail {
     int    rssi;
     int    battery;
     bool   charging;
+    String battEst;             // rough time-left on battery ("" while charging/untracked)
     String reset5h, reset7d;
     String uptime;
 };

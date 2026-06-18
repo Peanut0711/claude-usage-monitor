@@ -156,9 +156,11 @@ void drawHeader(const char* title) {
     canvas.drawString(title, 16, 16);
 }
 
-// "label: value" row in the muted/label palette.
+// "label: value" row in the muted/label palette. Uses the anti-aliased Styrene
+// VLW (same as the dashboard) so the detail/status screens read as cleanly.
 void drawRow(const char* label, const String& value, int y) {
-    canvas.setFont(&fonts::FreeSans9pt7b);
+    useTextFont();
+    canvas.setTextDatum(textdatum_t::top_left);
     canvas.setTextColor(rgb(COL_SUB));
     canvas.drawString(label, 16, y);
     canvas.setTextColor(rgb(COL_TITLE));
@@ -531,15 +533,20 @@ void drawDetail(const Detail& d) {
     drawHeader("Details");
     char buf[40];
 
-    drawRow("WiFi:",   d.ssid, 54);
-    drawRow("IP:",     d.ip, 78);
+    // Start a touch higher and pack tighter (dy=23) so the taller VLW rows still
+    // leave a bottom margin under the 7th row (was jammed against the edge).
+    const int y0 = 48, dy = 23;
+    drawRow("WiFi:",   d.ssid, y0);
+    drawRow("IP:",     d.ip, y0 + dy);
     snprintf(buf, sizeof(buf), "%d dBm", d.rssi);
-    drawRow("Signal:", buf, 102);
+    drawRow("Signal:", buf, y0 + 2 * dy);
     snprintf(buf, sizeof(buf), "%d%%%s", d.battery, d.charging ? " (chg)" : "");
-    drawRow("Battery:", buf, 126);
-    drawRow("5h reset:", d.reset5h, 150);
-    drawRow("7d reset:", d.reset7d, 174);
-    drawRow("Uptime:",   d.uptime, 198);
+    String battVal(buf);
+    if (d.battEst.length()) battVal += "  " + d.battEst;   // append "~Hh Mm (R%/h)"
+    drawRow("Battery:", battVal, y0 + 3 * dy);
+    drawRow("5h reset:", d.reset5h, y0 + 4 * dy);
+    drawRow("7d reset:", d.reset7d, y0 + 5 * dy);
+    drawRow("Uptime:",   d.uptime, y0 + 6 * dy);
 
     present();
 }
