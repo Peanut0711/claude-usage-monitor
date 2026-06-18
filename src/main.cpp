@@ -228,6 +228,14 @@ api::Usage    gLastUsage;            // last result (drives dashboard + detail)
 bool          gPollAnimate = false;
 int           gAnimFrame   = 0;
 bool          gStale       = false;  // last poll failed; showing previous data
+uint32_t      gLastGoodMs  = 0;      // millis() of the last successful poll (stale age)
+
+// After a failed poll, retry with exponential backoff (fast at first so a blip
+// recovers quickly, capped at the normal cadence so a sustained outage doesn't
+// hammer). Cleared back to 0 -> normal interval on the next success.
+uint32_t      gPollBackoffMs = 0;
+constexpr uint32_t POLL_RETRY_MIN_MS = 5000;
+constexpr uint32_t POLL_RETRY_MAX_MS = CUM_POLL_INTERVAL_MS;
 
 // --- Count-up animation (dashboard) -----------------------------------------
 // On a fresh poll the bars/% ease from the previously shown values up to the
@@ -376,6 +384,12 @@ void drawDashFrame(float curPop, float wkPop,
         else if (b.eta5 >= 0 && b.eta5 <= 120) d.status = "~" + fmtEta(b.eta5) + " to 5h limit";
         else if (gLastUsage.util7d >= 100.0f)  d.status = "7d limit reached";
         else if (b.eta7 >= 0 && b.eta7 <= 180) d.status = "~" + fmtEta(b.eta7) + " to 7d limit";
+    }
+    // Stale data is the priority signal: the dot (top-right) flags it, and the
+    // status line shows how old the shown numbers are so they aren't mistaken
+    // for live ones during a network/API outage.
+    if (gStale && gLastGoodMs) {
+        d.status = "stale - " + String((millis() - gLastGoodMs) / 60000) + "m ago";
     }
     d.clock        = fmtClock(now);
     d.stale        = gStale;
@@ -845,6 +859,8 @@ void loop() {
                 if (gPollResult.ok) {
                     gLastUsage = gPollResult;        // fresh good data
                     gStale = false;
+                    gLastGoodMs = millis();
+                    gPollBackoffMs = 0;              // back to the normal cadence
                     gStatusIdx++;
                     histPush(gPollResult.util5h, gPollResult.util7d);
                     if (gPage == PAGE_DASH) {
@@ -860,6 +876,14 @@ void loop() {
                     gStale = true;                   // keep showing prior data
                 } else {
                     gLastUsage = gPollResult;        // never had data -> error screen
+                }
+                if (!gPollResult.ok) {
+                    // Back off the next retry (5s -> 10s -> ... -> interval) and,
+                    // if the link itself dropped, nudge the STA back onto its AP.
+                    gPollBackoffMs = gPollBackoffMs
+                        ? min(gPollBackoffMs * 2, POLL_RETRY_MAX_MS)
+                        : POLL_RETRY_MIN_MS;
+                    if (!net::isConnected()) net::reconnect();
                 }
                 if (!gAnimating) renderCurrentView();   // anim frames self-draw
             }
@@ -893,10 +917,11 @@ void loop() {
             // Trigger a poll: Home button (animated) or the periodic interval.
             // Ignore Home while the count-up is still playing -> no jarring instant
             // re-refresh the moment the animation ends (release + press again to refresh).
+            uint32_t pollEvery = gPollBackoffMs ? gPollBackoffMs : CUM_POLL_INTERVAL_MS;
             if (homeFired && !gAnimating) {
                 requestPoll(true);
                 gLastPoll = millis();
-            } else if (!gPollRunning && millis() - gLastPoll >= CUM_POLL_INTERVAL_MS) {
+            } else if (!gPollRunning && millis() - gLastPoll >= pollEvery) {
                 requestPoll(false);
                 gLastPoll = millis();
             }

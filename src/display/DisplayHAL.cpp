@@ -12,8 +12,25 @@
 #include "claudecode_bolt.h"
 #include "claudecode_logo.h"
 #include "claudecode_wordmark.h"
-#include "nexon_num.h"      // NEXON Lv1 Gothic Bold 14pt, digits + '%' (big % number)
-#include "nexon_text.h"     // NEXON Lv1 Gothic Bold, ASCII (reset countdown)
+// Brand typography: Anthropic's Tiempos (big number) + Styrene B (labels). Those
+// are commercial fonts, so their generated headers are git-ignored -- present on
+// the maintainer's build, absent in the public repo. Fall back to the bundled,
+// license-clean NEXON Lv1 Gothic when they're not there, so a clone still builds.
+// (Regenerate via tools/ttf_to_lgfx_gfxfont.py; see the headers' top comment.)
+#if __has_include("tiempos_num.h")
+  #include "tiempos_num.h"
+  #define CUM_NUM_FONT TiemposNum
+#else
+  #include "nexon_num.h"
+  #define CUM_NUM_FONT NexonNum
+#endif
+#if __has_include("styrene_text.h")
+  #include "styrene_text.h"
+  #define CUM_TEXT_FONT StyreneText
+#else
+  #include "nexon_text.h"
+  #define CUM_TEXT_FONT NexonText
+#endif
 
 namespace {
 LGFX_TDisplayS3Pro lcd;
@@ -204,17 +221,21 @@ void drawStatus(const String& ssid, const String& ip, int rssi) {
 }
 
 namespace {
-// ---- Stage 4 themed dashboard palette -------------------------------------
+// ---- Stage 4 themed dashboard palette --------------------------------------
+// Aligned to Anthropic's real brand design tokens (warm terra-cotta + cloud/
+// warm-grey neutrals) instead of the earlier ad-hoc purple-leaning set. The
+// coral now matches the captive portal's #d97757 exactly. Bar colors stay
+// orange/lime (a deliberate functional distinction between the two windows).
 constexpr uint32_t T_BG     = 0x0D0D12;  // near-black
-constexpr uint32_t T_CARD   = 0x1B1B24;  // card background
-constexpr uint32_t T_TITLE  = 0xF2F2F5;  // bright text
-constexpr uint32_t T_MUTED  = 0x9B90B0;  // muted lavender ("resets in")
-constexpr uint32_t T_TRACK  = 0x423C58;  // bar track (purple) - visible vs card
-constexpr uint32_t T_CORAL  = 0xE8654F;  // mascot + status
+constexpr uint32_t T_CARD   = 0x1F1F1E;  // card background (warm dark)
+constexpr uint32_t T_TITLE  = 0xFAF9F5;  // primary text (warm cloud white)
+constexpr uint32_t T_MUTED  = 0xB0AEA5;  // secondary text (warm grey, was lavender)
+constexpr uint32_t T_TRACK  = 0x2A2A28;  // bar track (warm dark, was purple)
+constexpr uint32_t T_CORAL  = 0xD97757;  // brand terra-cotta (matches portal)
 constexpr uint32_t T_CUR    = 0xED7B3A;  // current bar (orange)
 constexpr uint32_t T_WK     = 0xC2D74A;  // weekly bar (lime)
-constexpr uint32_t T_PILLBG = 0x463A5E;  // pill background
-constexpr uint32_t T_PILLTX = 0xE9E2F5;  // pill text
+constexpr uint32_t T_PILLBG = 0x2A2A28;  // pill background (warm dark, was purple)
+constexpr uint32_t T_PILLTX = 0xEDE8E0;  // pill text (warm off-white)
 constexpr uint32_t T_GREEN  = 0x7BC86B;  // battery ok
 constexpr uint32_t T_WARN   = 0xE0A24A;  // usage approaching the limit (amber, >=80%)
 constexpr uint32_t T_CRIT   = 0xE5453A;  // usage at/over the limit (red, >=95%)
@@ -324,7 +345,7 @@ void drawCardContent(int yc, float pct, uint32_t barColor, float pop, float glow
     // vertically between the card top (yc) and the bar top (yc+42) -> yc+21.
     char buf[8];
     snprintf(buf, sizeof(buf), "%d%%", (int)(pct + 0.5f));
-    canvas.setFont(&NexonNum);
+    canvas.setFont(&CUM_NUM_FONT);
     canvas.setTextDatum(textdatum_t::middle_left);
     canvas.setTextColor(rgb(T_TITLE));            // number stays steady (only the bar flashes)
     canvas.drawString(buf, cx + 18, yc + 21);     // centered between card top and bar top
@@ -352,7 +373,7 @@ void drawMetricCard(int yc, const char* label, float pct, const String& reset,
     // Reset countdown — vertically centered between the bar bottom (yc+54) and
     // the card bottom (yc+82), i.e. at yc+68, using a middle datum so the font's
     // real glyph height (not its top padding) is what gets centered.
-    canvas.setFont(&NexonText);
+    canvas.setFont(&CUM_TEXT_FONT);
     canvas.setTextDatum(textdatum_t::middle_left);
     canvas.setTextColor(rgb(0xC8BEDC));
     canvas.drawString("Resets in " + reset, cx + 18, yc + 68);
@@ -385,7 +406,7 @@ void drawCardBand(int yc, float pct, uint32_t barColor, float pop, float glow,
 constexpr int CLOCK_Y = 7;
 void drawClockText(const String& clock, bool colonOn) {
     const int cx = canvas.width() / 2;
-    canvas.setFont(&NexonText);
+    canvas.setFont(&CUM_TEXT_FONT);
     canvas.setTextDatum(textdatum_t::top_center);
     canvas.setTextColor(rgb(T_TITLE));
     canvas.drawString(clock, cx, CLOCK_Y);

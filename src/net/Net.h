@@ -39,6 +39,9 @@ bool apStaConnect(const String& ssid, const String& pass, uint32_t timeoutMs);
 void apStaDisconnect();
 
 bool      isConnected();
+// Nudge the STA back onto its last AP after a drop (non-blocking; reuses the
+// stored config). Cheap to call repeatedly while disconnected.
+void      reconnect();
 IPAddress localIP();
 int       rssi();           // dBm, valid when connected
 String    ssid();           // SSID of the connected network

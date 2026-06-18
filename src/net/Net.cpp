@@ -103,6 +103,7 @@ void apStaDisconnect() {
 }
 
 bool      isConnected() { return WiFi.status() == WL_CONNECTED; }
+void      reconnect()   { WiFi.reconnect(); }   // re-associate to the stored AP
 IPAddress localIP()     { return WiFi.localIP(); }
 int       rssi()        { return WiFi.RSSI(); }
 String    ssid()        { return WiFi.SSID(); }
