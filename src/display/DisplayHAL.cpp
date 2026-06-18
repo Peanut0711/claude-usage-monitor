@@ -87,6 +87,12 @@ LGFX_TDisplayS3Pro& gfx() { return lcd; }
 
 void setBrightness(uint8_t value) { lcd.setBrightness(value); }
 
+// Panel sleep-in / sleep-out. Cuts the panel controller's own draw (gate/source
+// drivers, internal oscillator) on top of the backlight being off -- a few mA
+// the backlight-0 alone doesn't save. wakeup() restores it; call before drawing.
+void sleep() { lcd.sleep(); }
+void wake()  { lcd.wakeup(); }
+
 bool begin(uint8_t brightness) {
     if (!lcd.init()) {
         return false;

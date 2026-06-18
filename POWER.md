@@ -14,8 +14,15 @@ On battery, the dominant draws, largest first:
    draws tens of mA even when "idle-looping".
 3. **WiFi radio** — STA stays associated to poll the API every 60 s.
 
-The screen is already turned off after inactivity, so once it's off the CPU and
-WiFi idle current is what's left to optimize.
+The screen is already turned off after inactivity, so once it's off the CPU
+active-idle current is what's left to optimize (the panel and WiFi are now
+powered down on screen-off — see below; the remaining floor is the 80 MHz
+busy-loop, which only true light sleep can cut).
+
+> **Note on "screen off":** turning the screen off was originally *just* the
+> backlight LED (`setBrightness(0)`). The panel controller, WiFi, and CPU all
+> stayed fully powered, so screen-off draw was higher than it looked. The panel
+> and WiFi are now actively powered down on the screen-off transition (below).
 
 ## Implemented optimizations (safe, no UX regression)
 
@@ -37,9 +44,31 @@ WiFi idle current is what's left to optimize.
 - **TLS keep-alive** (`api`): the connection is reused between polls, so refresh
   latency drops from a full ~1–3 s handshake to ~0.3 s when the server keeps the
   connection open.
+- **Panel sleep on screen-off** (`display::sleep()` / `wake()`, driven from the
+  screen-off transition in `loop()`): issues the panel sleep-in command so the
+  controller's own draw (gate/source drivers, internal oscillator) stops, not
+  just the backlight LED. `panelSleep()`/`panelWake()` in `main.cpp` keep it
+  idempotent; `wakeShow()` and the awake transition both wake it before any draw.
+- **WiFi radio off while asleep** (`net::radioOff()` on the screen-off transition,
+  battery only): the radio is fully stopped, not just modem-sleeping. We already
+  don't poll while asleep, so an associated link that wakes every DTIM to hear
+  beacons is pure waste. Wake reconnects via `roamReconnect()` (which also handles
+  an office→home location change) and forces a fresh poll, so the only cost is the
+  ~2–4 s rescan on wake. This pairs with the runtime-roaming work: the same scan
+  path that roams between saved networks also serves as the wake-from-radio-off
+  reconnect. Only in the Running state — Setup must keep its SoftAP up.
+- **Drain-rate windowing** (`battEstimate()`): the Battery page %/h and time-left
+  are computed from a **trailing 30-min slope of the recorded history**, not a
+  since-unplug average. The SY6970 has no fuel gauge, so % is an OCV estimate;
+  the first ~10–20 min after unplug read a fast "drop" that is mostly post-charge
+  voltage relaxation, not real drain. A since-unplug average folded that in and
+  over-stated the rate (under-stated time-left); the sliding window slides past it.
 
-These together cut the screen-off draw meaningfully (CPU 240→80 MHz + modem
-sleep) without changing how the device feels.
+These together cut the screen-off draw meaningfully — CPU 240→80 MHz, panel
+asleep, and the WiFi radio fully off — without changing how the device feels on
+USB (where it never sleeps) or losing touch/button/proximity wake (unlike light
+sleep, which is still deferred below). The remaining screen-off floor is the
+80 MHz CPU active-idle loop.
 
 ## Light sleep — investigation & decision
 

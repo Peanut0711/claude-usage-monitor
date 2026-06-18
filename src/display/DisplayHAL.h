@@ -25,6 +25,12 @@ LGFX_TDisplayS3Pro& gfx();
 // Set backlight brightness (0-255).
 void setBrightness(uint8_t value);
 
+// Panel sleep (sleep-in/out commands): powers down the panel controller itself,
+// saving a few mA on top of the backlight being off. Pair with backlight 0 when
+// the screen goes off; call wake() before any drawing after a sleep().
+void sleep();
+void wake();
+
 // Stage-1 self-test: title text + a colored utilization bar.
 void drawTestScreen();
 

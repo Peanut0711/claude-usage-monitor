@@ -42,6 +42,9 @@ bool      isConnected();
 // Nudge the STA back onto its last AP after a drop (non-blocking; reuses the
 // stored config). Cheap to call repeatedly while disconnected.
 void      reconnect();
+// Fully power down the radio (more than modem sleep) to save battery while the
+// screen is asleep -- we don't poll asleep, and wake reconnects via connectMulti.
+void      radioOff();
 IPAddress localIP();
 int       rssi();           // dBm, valid when connected
 String    ssid();           // SSID of the connected network

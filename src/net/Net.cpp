@@ -106,6 +106,12 @@ void apStaDisconnect() {
 
 bool      isConnected() { return WiFi.status() == WL_CONNECTED; }
 void      reconnect()   { WiFi.reconnect(); }   // re-associate to the stored AP
+
+// Stop the radio entirely (esp_wifi_stop via disconnect(wifioff=true) + mode
+// OFF). Used when the screen sleeps on battery: associated modem-sleep still
+// wakes every DTIM to hear beacons, which is pure waste when we never poll while
+// asleep. A subsequent connectMulti() re-enables STA mode and re-associates.
+void      radioOff()    { WiFi.disconnect(true); WiFi.mode(WIFI_OFF); }
 IPAddress localIP()     { return WiFi.localIP(); }
 int       rssi()        { return WiFi.RSSI(); }
 String    ssid()        { return WiFi.SSID(); }

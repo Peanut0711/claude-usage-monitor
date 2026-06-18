@@ -68,6 +68,13 @@ uint32_t gDischStartMs  = 0;
 
 void noteInput() { gLastInput = millis(); }
 
+// Panel power, tracked so sleep/wake stay idempotent (the wake path is reached
+// from several places). Backlight 0 only kills the LED; sleeping the panel
+// controller saves a few mA more. wake() must run before any drawing.
+bool gPanelSlept = false;
+void panelSleep() { if (!gPanelSlept) { display::sleep(); gPanelSlept = true; } }
+void panelWake()  { if (gPanelSlept) { display::wake();  gPanelSlept = false; } }
+
 bool screenAsleep() {
     if (gManualOff) return true;
     // On USB we only dim, never sleep, so input keeps acting normally.
@@ -376,6 +383,19 @@ String fmtUptime() {
 // the Li-ion curve is flat in the middle -> the linear extrapolation to 0% can be
 // well off. `tracking` is false on USB; `measuring` is true until there's enough
 // drop + time for a trustworthy rate.
+// Battery-% history for the Battery page graph. One sample per gBattSampleMs while
+// on battery, reset on unplug. Stores minutes-since-unplug + percent so the graph
+// x-axis is real elapsed time. On overflow, decimate (drop every other point) and
+// double the interval, so an arbitrarily long discharge still fits the buffer.
+// (Declared here -- ahead of battEstimate -- because the drain rate is now read
+// off this same recorded history rather than a single since-unplug average.)
+constexpr int BATT_HIST_N = 96;
+uint16_t gBattMin[BATT_HIST_N];
+uint8_t  gBattPct[BATT_HIST_N];
+int      gBattHistCount = 0;
+uint32_t gBattSampleMs  = 60000;
+uint32_t gBattLastSample = 0;
+
 struct BattEst {
     int   pct       = 100;
     bool  tracking  = false;
@@ -384,15 +404,32 @@ struct BattEst {
     int   etaMin    = -1;     // minutes to 0% (-1 if unknown)
 };
 
+// Trailing window for the drain rate. The SY6970 has no fuel gauge, so % is an
+// open-circuit-voltage estimate (Power.cpp curve). For the first ~10-20 min after
+// unplug the cell voltage relaxes down from its charge level, which reads as a
+// fast % drop that is mostly NOT real energy use. A since-unplug average folds
+// that transient in and over-states the drain (and under-states time-left); a
+// sliding window over the recorded history slides past it and tracks the true
+// steady-state rate instead.
+constexpr int BATT_RATE_WINDOW_MIN = 30;   // look back this many minutes
+constexpr int BATT_RATE_MIN_SPAN_MIN = 10; // need this much span before trusting it
+
 BattEst battEstimate() {
     BattEst e;
     e.pct = power::percent();
     if (gDischStartPct < 0) return e;                        // on USB / not tracking
     e.tracking = true;
-    int drop = gDischStartPct - e.pct;
-    uint32_t el = millis() - gDischStartMs;
-    if (drop < 2 || el < 10UL * 60 * 1000) { e.measuring = true; return e; }
-    float rate = (float)drop * 3600000.0f / (float)el;       // %/hour
+    if (gBattHistCount < 2) { e.measuring = true; return e; }
+
+    // Slope from the newest sample back to the oldest one still inside the window.
+    int last   = gBattHistCount - 1;
+    int nowMin = gBattMin[last];
+    int start  = last;
+    while (start > 0 && nowMin - gBattMin[start - 1] <= BATT_RATE_WINDOW_MIN) start--;
+    int spanMin = nowMin - gBattMin[start];
+    int drop    = (int)gBattPct[start] - (int)gBattPct[last];
+    if (spanMin < BATT_RATE_MIN_SPAN_MIN || drop < 2) { e.measuring = true; return e; }
+    float rate = (float)drop * 60.0f / (float)spanMin;       // %/hour
     if (rate < 0.1f) { e.measuring = true; return e; }
     e.ratePerHr = rate;
     float etaHr = (float)e.pct / rate;
@@ -412,17 +449,6 @@ String fmtBattLeft() {
              e.etaMin / 60, e.etaMin % 60, e.ratePerHr);
     return String(b);
 }
-
-// Battery-% history for the Battery page graph. One sample per gBattSampleMs while
-// on battery, reset on unplug. Stores minutes-since-unplug + percent so the graph
-// x-axis is real elapsed time. On overflow, decimate (drop every other point) and
-// double the interval, so an arbitrarily long discharge still fits the buffer.
-constexpr int BATT_HIST_N = 96;
-uint16_t gBattMin[BATT_HIST_N];
-uint8_t  gBattPct[BATT_HIST_N];
-int      gBattHistCount = 0;
-uint32_t gBattSampleMs  = 60000;
-uint32_t gBattLastSample = 0;
 
 void battHistReset() {
     gBattHistCount = 0;
@@ -645,6 +671,7 @@ bool roamReconnect();   // defined after connectWithAnim (needs the boot-anim he
 
 void wakeShow() {
     noteInput();
+    panelWake();   // panel was slept on screen-off -> restore it before drawing
     // If the link dropped while asleep (e.g. carried home from the office), the
     // saved AP is gone -- rescan once, now that the user is looking, and force a
     // fresh poll on success so the screen isn't stale the moment it lights up.
@@ -902,14 +929,24 @@ void loop() {
     applyBacklight();         // inactivity dim/off + manual off
     power::update();          // slow battery sampling (self-throttled)
 
-    // Power: run the CPU at 80 MHz while the screen is off, 240 MHz when awake.
-    // screenAsleep() is only true on battery (USB dims but never sleeps), so this
-    // saves power during long idle stretches without touching the awake-time
-    // animation smoothness. 80 MHz is the floor that still runs WiFi.
+    // Power: on the screen-off transition, drop the CPU to 80 MHz and -- in the
+    // Running state -- also sleep the panel controller and power down the WiFi
+    // radio. screenAsleep() is only true on battery (USB dims but never sleeps),
+    // so this only fires on a battery idle-out; the awake transition restores all
+    // three. We don't poll while asleep, so dropping WiFi costs nothing but the
+    // ~2-4 s rescan on wake (handled by roamReconnect, idempotent if wakeShow
+    // already reconnected). Skipped outside Running so Setup keeps its AP up.
     {
         static bool pmAsleep = false;
         bool a = screenAsleep();
-        if (a != pmAsleep) { pmAsleep = a; setCpuFrequencyMhz(a ? 80 : 240); }
+        if (a != pmAsleep) {
+            pmAsleep = a;
+            setCpuFrequencyMhz(a ? 80 : 240);
+            if (gState == State::Running) {
+                if (a) { panelSleep(); net::radioOff(); }
+                else   { panelWake();  roamReconnect(); }
+            }
+        }
     }
     switch (gState) {
         case State::Setup:
