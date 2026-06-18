@@ -27,6 +27,11 @@ namespace {
 enum class State { Setup, Unlock, Running, TouchTest };
 State    gState;
 String   gSsid;          // remembered for the status screen
+// Saved WiFi list kept in RAM after boot so runtime roaming (home<->office) can
+// rescan + re-join the strongest present network without a reboot. Populated in
+// setup() from the credential store.
+String   gSsids[CUM_WIFI_MAX], gPws[CUM_WIFI_MAX];
+int      gWifiN = 0;
 String   gToken;         // decrypted OAuth token, held in RAM while running
 uint32_t gLastPoll = 0;  // millis() of the last API poll
 bool     gClockValid     = false;  // wall clock (NTP) has synced at least once
@@ -241,6 +246,8 @@ bool          gPollAnimate = false;
 int           gAnimFrame   = 0;
 bool          gStale       = false;  // last poll failed; showing previous data
 uint32_t      gLastGoodMs  = 0;      // millis() of the last successful poll (stale age)
+int           gDropStreak  = 0;      // consecutive failed polls while the link is down
+                                     // (drives the cheap-reconnect -> rescan-roam escalation)
 
 // After a failed poll, retry with exponential backoff (fast at first so a blip
 // recovers quickly, capped at the normal cadence so a sustained outage doesn't
@@ -634,8 +641,14 @@ void renderCurrentView() {
 // longer fresh (last poll older than one poll interval). A quick on/off within
 // ~1 min skips the redundant API call + refresh animation -- the data is already
 // current, so just show it and let the backlight fade it in.
+bool roamReconnect();   // defined after connectWithAnim (needs the boot-anim helper)
+
 void wakeShow() {
     noteInput();
+    // If the link dropped while asleep (e.g. carried home from the office), the
+    // saved AP is gone -- rescan once, now that the user is looking, and force a
+    // fresh poll on success so the screen isn't stale the moment it lights up.
+    if (!net::isConnected() && roamReconnect()) gLastPoll = 0;
     renderCurrentView();
     if (millis() - gLastPoll >= CUM_POLL_INTERVAL_MS) {
         requestPoll(true);
@@ -770,6 +783,28 @@ bool connectWithAnim(const String ssids[], const String passwords[], int n,
     return ok;
 }
 
+// Runtime WiFi roaming. When the link is down (typically a location change --
+// office <-> home), rescan every saved network and join the strongest one that's
+// actually present. preferredIdx = -1 forces the full scan (skips the fast
+// last-AP probe that would just keep failing on the now-absent network). Reuses
+// the boot connect+anim path so the screen shows the loading ring rather than
+// freezing during the ~2-4 s scan. No-op when already connected or nothing saved.
+// Only safe with no poll task in flight (it resets the STA + rescans).
+bool roamReconnect() {
+    if (net::isConnected()) return true;
+    if (gWifiN <= 0) return false;
+    Serial.println("[wifi] link down -> rescan to roam");
+    bool ok = connectWithAnim(gSsids, gPws, gWifiN, -1);
+    if (ok) {
+        gSsid = net::ssid();
+        // Remember the network that won so the next boot tries it first (no scan).
+        for (int i = 0; i < gWifiN; i++)
+            if (gSsids[i] == gSsid) { storage::setLastWifi((uint8_t)i); break; }
+        Serial.printf("[wifi] roamed onto %s\n", gSsid.c_str());
+    }
+    return ok;
+}
+
 }  // namespace
 
 void setup() {
@@ -807,19 +842,19 @@ void setup() {
         return;
     }
 
-    // Provisioned: load all remembered networks and join the strongest.
-    String ssids[CUM_WIFI_MAX], passwords[CUM_WIFI_MAX];
-    int n = credentials::loadWifiList(ssids, passwords, CUM_WIFI_MAX);
+    // Provisioned: load all remembered networks (kept in globals for runtime
+    // roaming) and join the strongest.
+    gWifiN = credentials::loadWifiList(gSsids, gPws, CUM_WIFI_MAX);
     int pref = storage::lastWifi();          // 0xFF when nothing recorded yet
-    if (pref >= n) pref = -1;                 // stale/absent index -> just scan
+    if (pref >= gWifiN) pref = -1;            // stale/absent index -> just scan
 
     // Retry the whole connect sequence before giving up: a transient empty scan
     // right after boot would otherwise drop us into setup even though a known
     // network is in range. Only the first attempt uses the fast direct-probe
     // path; later attempts force a fresh scan (pref = -1).
     bool connected = false;
-    for (int attempt = 0; n > 0 && attempt < CUM_WIFI_CONNECT_RETRIES; attempt++) {
-        connected = connectWithAnim(ssids, passwords, n, attempt == 0 ? pref : -1);
+    for (int attempt = 0; gWifiN > 0 && attempt < CUM_WIFI_CONNECT_RETRIES; attempt++) {
+        connected = connectWithAnim(gSsids, gPws, gWifiN, attempt == 0 ? pref : -1);
         if (connected) break;
         Serial.printf("[wifi] connect attempt %d/%d failed\n",
                       attempt + 1, CUM_WIFI_CONNECT_RETRIES);
@@ -832,8 +867,8 @@ void setup() {
     }
     gSsid = net::ssid();
     // Remember which network connected so the next boot tries it first (no scan).
-    for (int i = 0; i < n; i++) {
-        if (ssids[i] == gSsid) { storage::setLastWifi((uint8_t)i); break; }
+    for (int i = 0; i < gWifiN; i++) {
+        if (gSsids[i] == gSsid) { storage::setLastWifi((uint8_t)i); break; }
     }
 
     // PIN-encrypted token -> ask for the PIN; otherwise load it and go straight
@@ -1023,6 +1058,7 @@ void loop() {
                     gStale = false;
                     gLastGoodMs = millis();
                     gPollBackoffMs = 0;              // back to the normal cadence
+                    gDropStreak = 0;                 // link healthy again
                     gStatusIdx++;
                     histPush(gPollResult.util5h, gPollResult.util7d);
                     if (gPage == PAGE_DASH) {
@@ -1040,12 +1076,23 @@ void loop() {
                     gLastUsage = gPollResult;        // never had data -> error screen
                 }
                 if (!gPollResult.ok) {
-                    // Back off the next retry (5s -> 10s -> ... -> interval) and,
-                    // if the link itself dropped, nudge the STA back onto its AP.
+                    // Back off the next retry (5s -> 10s -> ... -> interval).
                     gPollBackoffMs = gPollBackoffMs
                         ? min(gPollBackoffMs * 2, POLL_RETRY_MAX_MS)
                         : POLL_RETRY_MIN_MS;
-                    if (!net::isConnected()) net::reconnect();
+                    // If the link itself dropped: a cheap same-AP reconnect first
+                    // (covers a brief blip / router reboot), then after a few
+                    // failures assume we've physically moved and rescan all saved
+                    // networks to roam (office <-> home) -- no reboot needed. The
+                    // backoff above paces the rescan so a sustained off-network
+                    // stretch (e.g. a commute with the screen on) doesn't scan
+                    // every cycle. The screen-off case never reaches here: the
+                    // loop breaks before polling while asleep, so a battery commute
+                    // stays fully idle.
+                    if (!net::isConnected()) {
+                        if (++gDropStreak < CUM_REROAM_AFTER) net::reconnect();
+                        else { roamReconnect(); gDropStreak = 0; }
+                    }
                 }
                 if (!gAnimating) renderCurrentView();   // anim frames self-draw
             }

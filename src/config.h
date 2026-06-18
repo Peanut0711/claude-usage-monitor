@@ -39,6 +39,12 @@
 // post-boot scan can transiently return 0 networks (radio still settling), so
 // retry the scan a couple of times before assuming the known APs are absent.
 #define CUM_WIFI_CONNECT_RETRIES     3
+// Runtime roaming: consecutive failed polls (each nudging a cheap same-AP
+// reconnect, for a brief blip) before assuming we've physically moved
+// (home<->office) and doing a full rescan to roam onto the strongest saved
+// network. Kept small so a real location change recovers within ~1 min while
+// the cheap reconnect still absorbs short blips without scanning.
+#define CUM_REROAM_AFTER             3
 // Pre-commit verify (setup portal): how long to wait for the STA link to come
 // up while validating the entered WiFi + token. Kept well under the browser's
 // POST timeout so the result page still reaches the phone.
