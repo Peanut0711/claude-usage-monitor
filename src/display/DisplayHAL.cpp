@@ -292,18 +292,18 @@ void drawWifiBars(int x, int y, int rssi) {
 }
 
 // Lucide-style battery: anti-aliased rounded outline + terminal nub, with the
-// level shown as 0-4 discrete bars (charging shows a bolt instead). Drawn with
-// LovyanGFX's smooth primitives so the edges match the VLW text.
+// level shown as 0-3 discrete bars (charging shows a bolt instead). Square
+// corners: axis-aligned fillRect edges are crisp without anti-aliasing.
 void drawBattery(int x, int y, int pct, bool charging) {
     if (pct < 0) pct = 0; if (pct > 100) pct = 100;
-    const int bw = 29, bh = 15, r = 3;
+    const int bw = 29, bh = 15;
     const uint32_t line = T_TITLE;
 
-    // Outline: outer smooth round-rect in the line color, inner punched to bg
-    // (a 2px AA stroke), plus the positive-terminal nub on the right.
-    canvas.fillSmoothRoundRect(x, y, bw, bh, r, rgb(line));
-    canvas.fillSmoothRoundRect(x + 2, y + 2, bw - 4, bh - 4, r - 1, rgb(T_BG));
-    canvas.fillSmoothRoundRect(x + bw, y + (bh - 6) / 2, 3, 6, 1, rgb(line));
+    // Outline: outer rect in the line color, inner punched to bg (a 2px stroke),
+    // plus the positive-terminal nub on the right.
+    canvas.fillRect(x, y, bw, bh, rgb(line));
+    canvas.fillRect(x + 2, y + 2, bw - 4, bh - 4, rgb(T_BG));
+    canvas.fillRect(x + bw, y + (bh - 6) / 2, 3, 6, rgb(line));
 
     if (charging) {                          // shaped lightning bolt (Lucide charging)
         // A thin AA line can't read as a bolt at this size, so use the designed
@@ -312,12 +312,13 @@ void drawBattery(int x, int y, int pct, bool charging) {
                  x + (bw - CC_BOLT_W) / 2, y + (bh - CC_BOLT_H) / 2, 1, T_GREEN);
         return;
     }
-    // Level bars (Lucide-style): one per ~33%, coral when low.
+    // Level bars: one per ~33%, coral when low. Wider cells + tighter gap so the
+    // body looks fuller; left-aligned (fills from the left like a real battery).
     int bars = pct >= 67 ? 3 : pct >= 34 ? 2 : pct >= 1 ? 1 : 0;
     uint32_t bc = (pct <= 15) ? T_CORAL : T_GREEN;
-    const int ix = x + 4, iy = y + 3, ih = bh - 6, barW = 4, gap = 4;
+    const int ix = x + 5, iy = y + 3, ih = bh - 6, barW = 5, gap = 2;
     for (int i = 0; i < bars; i++)
-        canvas.fillSmoothRoundRect(ix + i * (barW + gap), iy, barW, ih, 1, rgb(bc));
+        canvas.fillRect(ix + i * (barW + gap), iy, barW, ih, rgb(bc));
 }
 
 // Rounded "pill" badge, right-aligned to rightX. Returns its left edge.

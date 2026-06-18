@@ -74,13 +74,20 @@ bool screenAsleep() {
 // dim/off/wake transitions fade. Called at the top of loop.
 void applyBacklight() {
     // Refresh the cached USB-power state. charging() hits the PMU over I2C, so
-    // sample it ~1/s rather than every loop.
+    // sample it ~1/s rather than every loop. On a plug/unplug, reset the idle
+    // timer: while on USB the timer keeps running (only the off is suppressed),
+    // so without this an unplug after a long idle would sleep the screen
+    // instantly. Resetting gives the full timeout from the unplug moment.
     {
         static uint32_t usbCheck = 0;
+        static bool     prevUsb  = false;
+        static bool     usbInit  = false;
         uint32_t now = millis();
         if (gCurBright < 0 || now - usbCheck > 1000) {
             usbCheck = now;
             gOnUsb   = power::charging();
+            if (!usbInit)            { prevUsb = gOnUsb; usbInit = true; }
+            else if (gOnUsb != prevUsb) { prevUsb = gOnUsb; noteInput(); }
         }
     }
     bool noSleep = gOnUsb && !SLEEP_WHEN_CHARGING;   // USB: dim but never off
