@@ -1027,4 +1027,126 @@ void drawApiError(int httpCode, const String& note) {
     present();
 }
 
+// --- Navigation menu + settings (Home button selects, right scrollbar moves) -
+// Shared list layout so drawn rows and the scroll touch-band can't drift apart.
+constexpr int M_HDR_H     = 28;    // title band
+constexpr int M_ROW_H     = 32;    // each list row
+constexpr int M_PAD_X     = 18;    // left text padding (labels are left-aligned)
+constexpr int M_VAL_X     = 306;   // settings value right-align x
+// Right scrollbar. The thin bar at the far edge is VIEW ONLY (shows the cursor).
+// The drag band to its left moves the cursor; the far-right Home-button vicinity
+// is deliberately excluded (no control on the flaky edge). Selection is the Home
+// button, never a tap.
+constexpr int M_SB_MARGIN = 5;     // gap from the right edge to the visual bar
+constexpr int M_SB_TW     = 6;     // visual bar width (not a touch target)
+constexpr int M_CTRL_X0   = 326;   // drag band left (gap past the content)
+constexpr int M_CTRL_X1   = 448;   // drag band right (stops short of the Home sensor)
+
+struct MenuRow { const char* label; MenuItem item; };
+const MenuRow kMenuRows[] = {
+    {"Refresh",  MENU_REFRESH},
+    {"Detail",   MENU_DETAIL},
+    {"Battery",  MENU_BATTERY},
+    {"History",  MENU_HISTORY},
+    {"Settings", MENU_SETTINGS},
+    {"Exit",     MENU_EXIT},
+};
+constexpr int M_ROWS = sizeof(kMenuRows) / sizeof(kMenuRows[0]);
+
+// View-only scrollbar: dim track over `rows` rows + a coral thumb at the cursor.
+void drawScrollbar(int rows, int cursor) {
+    const int sbx = canvas.width() - M_SB_MARGIN - M_SB_TW;
+    canvas.fillRoundRect(sbx, M_HDR_H + 2, M_SB_TW, rows * M_ROW_H - 4, M_SB_TW / 2, rgb(T_TRACK));
+    if (cursor >= 0 && cursor < rows) {
+        int ty = M_HDR_H + cursor * M_ROW_H;
+        canvas.fillRoundRect(sbx, ty + 3, M_SB_TW, M_ROW_H - 6, M_SB_TW / 2, rgb(T_CORAL));
+    }
+}
+
+void drawMenu(int cursor) {
+    canvas.fillScreen(rgb(T_BG));
+    useTextFont();
+    canvas.setTextDatum(textdatum_t::middle_left);
+    canvas.setTextColor(rgb(T_TITLE));
+    canvas.drawString("Menu", M_PAD_X, M_HDR_H / 2);
+
+    drawScrollbar(M_ROWS, cursor);
+
+    for (int i = 0; i < M_ROWS; i++) {
+        const MenuRow& r = kMenuRows[i];
+        int y = M_HDR_H + i * M_ROW_H, cy = y + M_ROW_H / 2;
+        bool cur = (i == cursor);
+        int w = canvas.textWidth(r.label);
+        if (cur)   // highlight just the word, matching the tap zone
+            canvas.fillRoundRect(M_PAD_X - 8, y + 3, w + 16, M_ROW_H - 6, 8, rgb(T_CARD));
+        canvas.setTextDatum(textdatum_t::middle_left);
+        canvas.setTextColor(rgb(cur ? T_TITLE : r.item == MENU_EXIT ? T_CORAL : T_MUTED));
+        canvas.drawString(r.label, M_PAD_X, cy);
+    }
+    present();
+}
+
+void drawSettings(int cursor, const char* brightVal, const char* dimVal, const char* offVal) {
+    canvas.fillScreen(rgb(T_BG));
+    useTextFont();
+    canvas.setTextDatum(textdatum_t::middle_left);
+    canvas.setTextColor(rgb(T_TITLE));
+    canvas.drawString("Settings", M_PAD_X, M_HDR_H / 2);
+
+    const int nrows = 4;
+    drawScrollbar(nrows, cursor);
+
+    const char* labels[4] = {"Brightness", "Dim after", "Off after", "Back"};
+    const char* vals[3]   = {brightVal, dimVal, offVal};
+    for (int i = 0; i < nrows; i++) {
+        int y = M_HDR_H + i * M_ROW_H, cy = y + M_ROW_H / 2;
+        bool cur = (i == cursor);
+        int w = canvas.textWidth(labels[i]);
+        if (cur)   // highlight just the label
+            canvas.fillRoundRect(M_PAD_X - 8, y + 3, w + 16, M_ROW_H - 6, 8, rgb(T_CARD));
+        canvas.setTextDatum(textdatum_t::middle_left);
+        canvas.setTextColor(rgb(cur ? T_TITLE : i == 3 ? T_CORAL : T_MUTED));
+        canvas.drawString(labels[i], M_PAD_X, cy);
+        if (i < 3) {
+            canvas.setTextDatum(textdatum_t::middle_right);
+            canvas.setTextColor(rgb(T_CORAL));
+            canvas.drawString(vals[i], M_VAL_X, cy);
+        }
+    }
+    present();
+}
+
+bool inScrollBand(int x, int y, int rows) {
+    int bottom = M_HDR_H + rows * M_ROW_H;
+    return x >= M_CTRL_X0 && x <= M_CTRL_X1 && y >= M_HDR_H && y < bottom;
+}
+
+// Row whose left-aligned WORD label contains (x,y) -- only the exact text box,
+// not the rest of the line. -1 if the tap misses every word.
+int wordRowAt(int x, int y, const char* const* labels, int rows) {
+    if (y < M_HDR_H) return -1;
+    int row = (y - M_HDR_H) / M_ROW_H;
+    if (row < 0 || row >= rows) return -1;
+    useTextFont();
+    int w = canvas.textWidth(labels[row]);
+    return (x >= M_PAD_X - 8 && x <= M_PAD_X + w + 8) ? row : -1;
+}
+
+int menuWordRow(int x, int y) {
+    static const char* labels[M_ROWS];
+    for (int i = 0; i < M_ROWS; i++) labels[i] = kMenuRows[i].label;
+    return wordRowAt(x, y, labels, M_ROWS);
+}
+
+int settingsWordRow(int x, int y) {
+    static const char* labels[4] = {"Brightness", "Dim after", "Off after", "Back"};
+    return wordRowAt(x, y, labels, 4);
+}
+
+int menuRowCount() { return M_ROWS; }
+
+MenuItem menuRowItem(int row) {
+    return (row >= 0 && row < M_ROWS) ? kMenuRows[row].item : MENU_NONE;
+}
+
 }  // namespace display

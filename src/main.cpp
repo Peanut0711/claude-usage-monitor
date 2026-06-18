@@ -48,8 +48,8 @@ bool     gManualOff  = false; // user forced backlight off via IO16
 uint8_t  gActiveBright = 200; // brightness when awake (left-edge drag sets it)
 int      gCurBright  = -1;    // last applied brightness (cache; -1 = unset)
 uint32_t gFadeLast   = 0;     // millis() of the last brightness fade step
-constexpr uint32_t DIM_MS    = 60000;    // idle -> dim (60 s)
-constexpr uint32_t OFF_MS    = 120000;   // idle -> off (120 s)
+uint32_t gDimMs      = 60000;   // idle -> dim (settable in Settings; 0 = never)
+uint32_t gOffMs      = 120000;  // idle -> off (settable in Settings; 0 = never)
 constexpr uint8_t  DIM_LEVEL = 153;      // 60% of 255
 // Ease brightness toward the target instead of snapping, so dim/off/wake fade.
 // Brightening (wake) is snappier than darkening; both are full-scale durations.
@@ -89,7 +89,7 @@ bool screenAsleep() {
     if (gManualOff) return true;
     // On USB we only dim, never sleep, so input keeps acting normally.
     if (gOnUsb && !SLEEP_WHEN_CHARGING) return false;
-    return millis() - gLastInput > OFF_MS;
+    return gOffMs && millis() - gLastInput > gOffMs;   // 0 = never sleep
 }
 
 // Drive the backlight from manual-off / inactivity, easing toward the target so
@@ -121,9 +121,9 @@ void applyBacklight() {
         target = gActiveBright;            // keep the setup screen readable
     } else {
         uint32_t idle = millis() - gLastInput;
-        if      (idle > OFF_MS && !noSleep) target = 0;          // sleep (battery)
-        else if (idle > DIM_MS)             target = DIM_LEVEL;  // dim (both)
-        else                                target = gActiveBright;
+        if      (gOffMs && idle > gOffMs && !noSleep) target = 0;          // sleep (battery)
+        else if (gDimMs && idle > gDimMs)             target = DIM_LEVEL;  // dim (both)
+        else                                          target = gActiveBright;
     }
 
     uint32_t now = millis();
@@ -146,6 +146,44 @@ void applyBacklight() {
     if (span > 0) gCurBright = (step >= span)  ? target : gCurBright + step;
     else          gCurBright = (step >= -span) ? target : gCurBright - step;
     display::setBrightness((uint8_t)gCurBright);
+}
+
+// --- Settings (brightness / dim / off) --------------------------------------
+// Discrete presets cycled by the Home button on each settings row. Times in
+// seconds; 0 = "Never". Persisted to NVS as a small blob so they survive reboot.
+const uint8_t  kBrightSteps[] = {25, 64, 128, 191, 255};       // ~10/25/50/75/100%
+const uint16_t kDimSteps[]    = {15, 30, 60, 120, 300, 0};
+const uint16_t kOffSteps[]    = {30, 60, 120, 300, 600, 0};
+
+uint8_t  nextBright(uint8_t cur) {
+    const int n = sizeof(kBrightSteps);
+    for (int i = 0; i < n; i++) if (kBrightSteps[i] == cur) return kBrightSteps[(i + 1) % n];
+    for (int i = 0; i < n; i++) if (kBrightSteps[i] >  cur) return kBrightSteps[i];
+    return kBrightSteps[0];
+}
+uint16_t nextStep(const uint16_t* a, int n, uint16_t cur) {
+    for (int i = 0; i < n; i++) if (a[i] == cur) return a[(i + 1) % n];
+    return a[0];
+}
+String fmtSecs(uint16_t s) {
+    if (s == 0)       return "Never";
+    if (s % 60 == 0)  return String(s / 60) + "m";
+    return String(s) + "s";
+}
+String fmtBrightPct(uint8_t b) { return String((b * 100 + 127) / 255) + "%"; }
+
+struct UiSettings { uint8_t bright; uint16_t dimSec; uint16_t offSec; };
+void saveUiSettings() {
+    UiSettings s{ gActiveBright, (uint16_t)(gDimMs / 1000), (uint16_t)(gOffMs / 1000) };
+    storage::putBlob("ui", (const uint8_t*)&s, sizeof(s));
+}
+void loadUiSettings() {
+    UiSettings s;
+    if (storage::getBlob("ui", (uint8_t*)&s, sizeof(s)) == sizeof(s)) {
+        if (s.bright >= 25) gActiveBright = s.bright;
+        gDimMs = (uint32_t)s.dimSec * 1000;
+        gOffMs = (uint32_t)s.offSec * 1000;
+    }
 }
 
 void enterRunning();     // forward decl (tryPin -> enterRunning)
@@ -299,6 +337,11 @@ constexpr uint32_t GLOW_DELAY = 0;       // bar/number white-glow lag behind the
 // IO12 cycles pages: dashboard -> detail -> history -> battery.
 enum { PAGE_DASH = 0, PAGE_DETAIL = 1, PAGE_HISTORY = 2, PAGE_BATTERY = 3, PAGE_COUNT = 4 };
 int           gPage = PAGE_DASH;
+bool          gMenuOpen = false;   // Home-button nav menu overlay (modal while up)
+int           gMenuCursor = 0;     // scrollbar cursor row in the menu (Home selects it)
+bool          gSettingsOpen = false;
+int           gSetCursor = 0;      // scrollbar cursor row in the settings screen
+constexpr int SET_ROWS = 4;        // Brightness, Dim after, Off after, Back
 
 // Utilization history (one sample per successful poll), oldest..newest.
 constexpr int HIST_N = 64;
@@ -771,6 +814,8 @@ void enterRunning() {
     portal::stop();
     configTime(0, 0, CUM_NTP_SERVER);   // UTC epoch for reset countdowns + TLS cert dates
     gPage = PAGE_DASH;
+    gMenuOpen = false;
+    gSettingsOpen = false;
     gManualOff = false;
     noteInput();
     pinMode(TDS3_PIN_BTN_IO12, INPUT_PULLUP);
@@ -846,6 +891,82 @@ bool roamReconnect() {
     return ok;
 }
 
+// Redraw the settings screen from the live values.
+void drawSettingsNow() {
+    display::drawSettings(gSetCursor, fmtBrightPct(gActiveBright).c_str(),
+                          fmtSecs(gDimMs / 1000).c_str(), fmtSecs(gOffMs / 1000).c_str());
+}
+
+// Home pressed on a menu row: act on the cursor item.
+void menuActivate(int cursor) {
+    switch (display::menuRowItem(cursor)) {
+        case display::MENU_REFRESH:  gMenuOpen = false; requestPoll(true); gLastPoll = millis(); break;
+        case display::MENU_DETAIL:   gPage = PAGE_DETAIL;  gMenuOpen = false; break;
+        case display::MENU_BATTERY:  gPage = PAGE_BATTERY; gMenuOpen = false; break;
+        case display::MENU_HISTORY:  gPage = PAGE_HISTORY; gMenuOpen = false; break;
+        case display::MENU_SETTINGS: gMenuOpen = false; gSettingsOpen = true; gSetCursor = 0; drawSettingsNow(); break;
+        case display::MENU_EXIT:     gPage = PAGE_DASH;    gMenuOpen = false; break;
+        default: break;
+    }
+    if (!gMenuOpen && !gSettingsOpen) renderCurrentView();
+}
+
+// Home pressed on a settings row: cycle that value (Back returns to the menu).
+void settingsActivate(int cursor) {
+    switch (cursor) {
+        case 0:
+            gActiveBright = nextBright(gActiveBright);
+            gCurBright = gActiveBright; display::setBrightness(gActiveBright);
+            break;
+        case 1:
+            gDimMs = (uint32_t)nextStep(kDimSteps, sizeof(kDimSteps)/sizeof(kDimSteps[0]),
+                                        (uint16_t)(gDimMs / 1000)) * 1000;
+            break;
+        case 2:
+            gOffMs = (uint32_t)nextStep(kOffSteps, sizeof(kOffSteps)/sizeof(kOffSteps[0]),
+                                        (uint16_t)(gOffMs / 1000)) * 1000;
+            break;
+        default:  // Back
+            gSettingsOpen = false; gMenuOpen = true; gMenuCursor = 4;   // back onto "Settings"
+            display::drawMenu(gMenuCursor);
+            return;
+    }
+    saveUiSettings();
+    drawSettingsNow();
+}
+
+// Relative-swipe scrolling for the right band: the cursor moves by how far you
+// drag, not where you tap. Grab anywhere in the band, then swipe up/down; a tap
+// with no vertical travel does nothing. Returns true when the cursor changed.
+bool scrubUpdate(bool touching, int tx, int ty, int rows, int& cursor) {
+    static bool active = false;
+    static int  lastY = 0, accum = 0, lost = 0;
+    constexpr int STEP   = 11;   // px of vertical swipe per row (lower = more sensitive)
+    constexpr int GLITCH = 70;   // ignore a single-frame jump bigger than this (touch glitch)
+    constexpr int GRACE  = 2;    // tolerate this many dropped-touch frames mid-swipe
+
+    if (!touching) {
+        if (active && ++lost <= GRACE) return false;   // brief contact dropout: keep the swipe alive
+        active = false; lost = 0; return false;
+    }
+    lost = 0;
+    if (!active) {
+        if (!display::inScrollBand(tx, ty, rows)) return false;   // grab inside the band only
+        active = true; lastY = ty; accum = 0;
+        return false;                                             // anchor only -- no jump
+    }
+    int dy = ty - lastY;
+    lastY = ty;
+    if (dy > GLITCH || dy < -GLITCH) dy = 0;   // reject a glitchy coordinate spike (no sudden jump)
+    accum += dy;
+    bool changed = false;
+    while (accum >= STEP && cursor < rows - 1) { cursor++; accum -= STEP; changed = true; }
+    while (accum <= -STEP && cursor > 0)       { cursor--; accum += STEP; changed = true; }
+    if (cursor == rows - 1 && accum > 0) accum = 0;   // don't bank over-drag at the ends
+    if (cursor == 0 && accum < 0)        accum = 0;
+    return changed;
+}
+
 }  // namespace
 
 void setup() {
@@ -873,6 +994,7 @@ void setup() {
 #endif
 
     credentials::begin();
+    loadUiSettings();        // brightness / dim / off times (after NVS is up)
     power::begin();
     if (factoryResetRequested()) {
         Serial.println("[reset] BOOT held -> wiping credentials");
@@ -958,6 +1080,8 @@ void loop() {
             setCpuFrequencyMhz(a ? 80 : 240);
             if (gState == State::Running) {
                 if (a) {
+                    gMenuOpen = false;              // don't resume into the menu on wake
+                    gSettingsOpen = false;
                     panelSleep();
                     if (!gOnUsb) net::radioOff();   // battery only: no power gain on USB,
                                                     // and it would add wake-reconnect lag
@@ -1046,13 +1170,23 @@ void loop() {
             bool proxRise = proxNow && !proxWas;
             proxWas = proxNow;
 
-            // IO16: wake (show current view + animated refresh) if off, else force off.
+            // IO16: wake if off. In the menu/settings it moves the cursor UP (wrap);
+            // on the main screen it's the lock button (force backlight off).
             if (io16Pressed()) {
                 if (asleep) {
                     gManualOff = false;
                     wakeShow();                      // refresh only if data is stale
+                } else if (gSettingsOpen) {
+                    noteInput();
+                    gSetCursor = (gSetCursor + SET_ROWS - 1) % SET_ROWS;
+                    drawSettingsNow();
+                } else if (gMenuOpen) {
+                    noteInput();
+                    int n = display::menuRowCount();
+                    gMenuCursor = (gMenuCursor + n - 1) % n;
+                    display::drawMenu(gMenuCursor);
                 } else {
-                    gManualOff = true;
+                    gManualOff = true;               // main screen only: lock
                 }
                 delay(30);
                 break;
@@ -1079,7 +1213,8 @@ void loop() {
             if (touching || homeNow || io12) noteInput();
 
             // --- awake ---
-            // Home -> manual refresh. One per press; re-arm after release >300ms.
+            // Home -> open/close the nav menu. One event per press; re-arm after a
+            // >300ms release (the Home callback re-fires while the button is held).
             static bool     armed = true;
             static uint32_t lastSeen = 0;
             uint32_t now = millis();
@@ -1091,19 +1226,65 @@ void loop() {
                 armed = true;
             }
 
+            // Home drives the nav: closed -> open menu; in menu -> select cursor
+            // row; in settings -> cycle that value (Back returns). Selection is
+            // Home-only now -- the scrollbar just moves the cursor.
+            if (homeFired) {
+                if (gSettingsOpen) {
+                    settingsActivate(gSetCursor);
+                } else if (gMenuOpen) {
+                    menuActivate(gMenuCursor);
+                } else {
+                    if (gAnimating) finishCountUp();
+                    gMenuOpen = true; gMenuCursor = 0;
+                    display::drawMenu(gMenuCursor);
+                }
+            }
+
+            // Settings overlay (modal): right scrollbar moves the cursor; Home (above)
+            // cycles the value. IO12 backs out to the menu.
+            if (gSettingsOpen) {
+                static bool sWas = false;
+                bool sPrev = sWas; sWas = touching;
+                if (io12) {                                   // IO12: cursor down (wrap)
+                    gSetCursor = (gSetCursor + 1) % SET_ROWS;
+                    drawSettingsNow();
+                } else {
+                    if (scrubUpdate(touching, tx, ty, SET_ROWS, gSetCursor)) drawSettingsNow();
+                    if (touching && !sPrev) {                 // precise word tap
+                        int wr = display::settingsWordRow(tx, ty);
+                        if (wr >= 0) { gSetCursor = wr; settingsActivate(wr); }
+                    }
+                }
+                delay(16);
+                break;
+            }
+
+            // Menu overlay (modal): right scrollbar moves the cursor; Home (above)
+            // selects. IO12 closes. No tap-to-select -- selection is Home-only.
+            if (gMenuOpen) {
+                static bool mWas = false;
+                bool mPrev = mWas; mWas = touching;
+                if (io12) {                                   // IO12: cursor down (wrap)
+                    gMenuCursor = (gMenuCursor + 1) % display::menuRowCount();
+                    display::drawMenu(gMenuCursor);
+                } else {
+                    if (scrubUpdate(touching, tx, ty, display::menuRowCount(), gMenuCursor))
+                        display::drawMenu(gMenuCursor);
+                    if (touching && !mPrev) {                 // precise word tap -> select
+                        int wr = display::menuWordRow(tx, ty);
+                        if (wr >= 0) { gMenuCursor = wr; menuActivate(wr); }
+                    }
+                }
+                delay(16);
+                break;
+            }
+
+            // (nothing open) IO12 cycles pages as a quick secondary path.
             if (io12) {
                 gPage = (gPage + 1) % PAGE_COUNT;
                 if (gAnimating) finishCountUp();     // don't carry an anim across pages
                 renderCurrentView();
-            }
-
-            // Brightness: drag vertically on the LEFT edge strip (top=bright).
-            if (touching && tx < 48) {
-                int b = 255 - (ty - 4) * (255 - 25) / (218 - 4);
-                if (b < 25)  b = 25;
-                if (b > 255) b = 255;
-                gActiveBright = b; gCurBright = b;
-                display::setBrightness(b);
             }
 
             // Consume a finished poll. Keep the last good data on failure.
@@ -1180,14 +1361,11 @@ void loop() {
                 display::drawClockColon(fmtClock(time(nullptr)), colonOn);
             }
 
-            // Trigger a poll: Home button (animated) or the periodic interval.
-            // Ignore Home while the count-up is still playing -> no jarring instant
-            // re-refresh the moment the animation ends (release + press again to refresh).
+            // Periodic poll only. (Manual refresh is the menu's "Refresh" item now;
+            // the Home button drives the menu, so it must NOT also poll here -- that
+            // made selecting Exit / a page double as a refresh.)
             uint32_t pollEvery = gPollBackoffMs ? gPollBackoffMs : CUM_POLL_INTERVAL_MS;
-            if (homeFired && !gAnimating) {
-                requestPoll(true);
-                gLastPoll = millis();
-            } else if (!gPollRunning && millis() - gLastPoll >= pollEvery) {
+            if (!gPollRunning && millis() - gLastPoll >= pollEvery) {
                 requestPoll(false);
                 gLastPoll = millis();
             }

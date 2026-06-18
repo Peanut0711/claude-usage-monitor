@@ -87,6 +87,29 @@ struct BatteryPage {
 };
 void drawBatteryPage(const BatteryPage& b);
 
+// --- Navigation menu (opened with the Home button) --------------------------
+// A full-screen list so the touchscreen can jump straight to any page (and set
+// brightness / refresh) instead of cycling with IO12.
+enum MenuItem {
+    MENU_NONE = 0, MENU_DASH, MENU_DETAIL, MENU_HISTORY, MENU_BATTERY,
+    MENU_BRIGHTNESS, MENU_REFRESH, MENU_CLOSE, MENU_EXIT, MENU_SETTINGS
+};
+// Nav menu: a "Menu" title + a row list, navigated by the right drag scrollbar
+// (moves the cursor) and the Home button (selects). `cursor` highlights the row.
+void drawMenu(int cursor);
+int  menuRowCount();
+MenuItem menuRowItem(int row);
+// Settings screen (Brightness / Dim after / Off after / Back) -- same scrollbar +
+// Home model; values are passed pre-formatted.
+void drawSettings(int cursor, const char* brightVal, const char* dimVal, const char* offVal);
+// True if (x,y) is inside the right drag band for a `rows`-row list. The caller
+// does relative-swipe scrolling (cursor moves by drag distance, not tap position).
+bool inScrollBand(int x, int y, int rows);
+// Row whose exact word label is tapped (-1 if none) -- precise text box only, for
+// direct tap-to-select alongside the Home button.
+int menuWordRow(int x, int y);
+int settingsWordRow(int x, int y);
+
 // --- Stage 4 dashboard ------------------------------------------------------
 struct Dashboard {
     float  current      = 0;    // 5h utilization, percent 0..100
