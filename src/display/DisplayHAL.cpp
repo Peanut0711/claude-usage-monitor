@@ -12,27 +12,34 @@
 #include "claudecode_bolt.h"
 #include "claudecode_logo.h"
 #include "claudecode_wordmark.h"
-// Brand typography: Anthropic's Tiempos (big number) + Styrene B (labels). Those
-// are commercial fonts, so their generated headers are git-ignored -- present on
-// the maintainer's build, absent in the public repo. Fall back to the bundled,
-// license-clean NEXON Lv1 Gothic when they're not there, so a clone still builds.
-// (Regenerate via tools/ttf_to_lgfx_gfxfont.py; see the headers' top comment.)
-// Big % number: Styrene B 18pt (Clawdmeter uses Styrene for the usage numbers,
-// not the serif Tiempos -- that's only its splash title). A touch larger than
-// the old 14pt for more presence, with the header's yAdvance hand-tightened to
-// 32 so middle-datum centering still sits it in the card band.
-#if __has_include("styrene_num.h")
-  #include "styrene_num.h"
-  #define CUM_NUM_FONT StyreneNum
+// Brand typography: Styrene B (Anthropic's UI sans), the same face Clawdmeter
+// uses for the usage numbers. These generated headers are commercial-font glyph
+// data, so they're git-ignored -- present on the maintainer's build, absent in
+// the public repo, which falls back to the license-clean 1-bit NEXON font so a
+// clone still builds. (Regenerate via tools/ttf_to_vlw.py / ttf_to_lgfx_gfxfont.py.)
+//
+// Big % number: anti-aliased VLW (Styrene 16pt digits + 14pt '%') when present,
+// so curves and the percent sign render smooth instead of 1-bit jagged. The
+// digits and '%' share a baseline; the '%' is a couple sizes down because
+// Styrene's percent glyph is ~1.7x a digit's width.
+#if __has_include("styrene_num_vlw.h")
+  #include "styrene_num_vlw.h"        // StyreneNumVlw[] -- loadFont() data
+  #include "styrene_pct_vlw.h"        // StyrenePctVlw[]
+  #define CUM_NUM_VLW 1
 #else
   #include "nexon_num.h"
+  #define CUM_NUM_VLW 0
   #define CUM_NUM_FONT NexonNum
+  #define CUM_PCT_FONT NexonNum       // fallback: '%' same face/size as the digits
 #endif
-#if __has_include("styrene_text.h")
-  #include "styrene_text.h"
-  #define CUM_TEXT_FONT StyreneText
+// Label/countdown/clock text: anti-aliased Styrene VLW when present, 1-bit NEXON
+// fallback otherwise. useTextFont() (below) selects the right one.
+#if __has_include("styrene_text_vlw.h")
+  #include "styrene_text_vlw.h"       // StyreneTextVlw[]
+  #define CUM_TEXT_VLW 1
 #else
   #include "nexon_text.h"
+  #define CUM_TEXT_VLW 0
   #define CUM_TEXT_FONT NexonText
 #endif
 
@@ -60,6 +67,17 @@ inline uint32_t rgb(uint32_t hex) {
 // Blit the finished frame to the panel.
 void present() {
     if (canvasReady) canvas.pushSprite(0, 0);
+}
+
+// Select the dashboard label font: anti-aliased Styrene VLW (loadFont) when
+// available, else the 1-bit NEXON GFXfont (setFont). VLW uses one runtime-font
+// slot, so each call reloads -- fine at the low rate these labels redraw.
+inline void useTextFont() {
+#if CUM_TEXT_VLW
+    canvas.loadFont(StyreneTextVlw);
+#else
+    canvas.setFont(&CUM_TEXT_FONT);
+#endif
 }
 }  // namespace
 
@@ -348,11 +366,32 @@ void drawCardContent(int yc, float pct, uint32_t barColor, float pop, float glow
     // Big percentage — glows toward the card's pastel tone as it lands. Centered
     // vertically between the card top (yc) and the bar top (yc+42) -> yc+21.
     char buf[8];
-    snprintf(buf, sizeof(buf), "%d%%", (int)(pct + 0.5f));
-    canvas.setFont(&CUM_NUM_FONT);
-    canvas.setTextDatum(textdatum_t::middle_left);
+    snprintf(buf, sizeof(buf), "%d", (int)(pct + 0.5f));   // digits only
     canvas.setTextColor(rgb(T_TITLE));            // number stays steady (only the bar flashes)
-    canvas.drawString(buf, cx + 18, yc + 21);     // centered between card top and bar top
+    // Digits and the '%' share a baseline (baseline_left datum) so the smaller
+    // percent sign sits on the number's bottom line instead of floating in its
+    // middle. baseY puts the digit row in the band between the card top and bar.
+    // Styrene's '%' is ~1.7x a digit's width, so it's drawn a couple sizes down
+    // (CUM_PCT_FONT) to stay proportionate.
+    const int nx = cx + 18, baseY = yc + 33;
+    canvas.setTextDatum(textdatum_t::baseline_left);
+#if CUM_NUM_VLW
+    // Anti-aliased VLW: one runtime-font slot, so load digits -> draw -> load '%'
+    // -> draw. The arrays live in flash; loadFont reparses each call (cheap for
+    // these tiny glyph sets). VLW blends over the card bg already painted here.
+    canvas.loadFont(StyreneNumVlw);
+    canvas.drawString(buf, nx, baseY);
+    int dw = canvas.textWidth(buf);
+    canvas.loadFont(StyrenePctVlw);
+    canvas.drawString("%", nx + dw + 1, baseY);   // tight gap (Clawdmeter-style cohesion)
+    canvas.unloadFont();                          // hand the font back to setFont() users
+#else
+    canvas.setFont(&CUM_NUM_FONT);
+    canvas.drawString(buf, nx, baseY);            // big digits
+    int dw = canvas.textWidth(buf);
+    canvas.setFont(&CUM_PCT_FONT);
+    canvas.drawString("%", nx + dw + 1, baseY);   // smaller, baseline-aligned, tight gap
+#endif
 
     const int bx = cx + 18, bw = cw - 36, by = yc + 42, bh = 12, r = 6;
     canvas.fillRoundRect(bx, by, bw, bh, r, rgb(T_TRACK));
@@ -377,7 +416,7 @@ void drawMetricCard(int yc, const char* label, float pct, const String& reset,
     // Reset countdown — vertically centered between the bar bottom (yc+54) and
     // the card bottom (yc+82), i.e. at yc+68, using a middle datum so the font's
     // real glyph height (not its top padding) is what gets centered.
-    canvas.setFont(&CUM_TEXT_FONT);
+    useTextFont();
     canvas.setTextDatum(textdatum_t::middle_left);
     canvas.setTextColor(rgb(T_MUTED));           // warm grey (was leftover lavender)
     canvas.drawString("Resets in " + reset, cx + 18, yc + 68);
@@ -410,7 +449,7 @@ void drawCardBand(int yc, float pct, uint32_t barColor, float pop, float glow,
 constexpr int CLOCK_Y = 7;
 void drawClockText(const String& clock, bool colonOn) {
     const int cx = canvas.width() / 2;
-    canvas.setFont(&CUM_TEXT_FONT);
+    useTextFont();
     canvas.setTextDatum(textdatum_t::top_center);
     canvas.setTextColor(rgb(T_TITLE));
     canvas.drawString(clock, cx, CLOCK_Y);
@@ -420,7 +459,10 @@ void drawClockText(const String& clock, bool colonOn) {
             int left   = cx - canvas.textWidth(clock) / 2;
             int colonX = left + canvas.textWidth(clock.substring(0, c).c_str());
             int colonW = canvas.textWidth(":");
-            canvas.fillRect(colonX, CLOCK_Y, colonW, 18, rgb(T_BG));
+            // Clear down to y33 (just above the first card at y34): the VLW colon's
+            // lower dot sits near the baseline (~y30), below the old fixed 18px,
+            // so a short clear left a residual dot in the off phase.
+            canvas.fillRect(colonX, CLOCK_Y, colonW, 33 - CLOCK_Y, rgb(T_BG));
         }
     }
 }
@@ -462,9 +504,9 @@ void drawDashboardBands(float curPct, float wkPct, float curPop, float wkPop,
 
 void drawClockColon(const String& clock, bool colonOn) {
     const int cx = canvas.width() / 2;
-    canvas.fillRect(cx - 60, 0, 120, 26, rgb(T_BG));   // clear the clock band only
+    canvas.fillRect(cx - 60, 0, 120, 33, rgb(T_BG));   // clock band (tall enough for the VLW colon)
     drawClockText(clock, colonOn);
-    lcd.setClipRect(cx - 60, 0, 120, 26);              // push just that band
+    lcd.setClipRect(cx - 60, 0, 120, 33);              // push just that band (full colon height)
     canvas.pushSprite(0, 0);
     lcd.clearClipRect();
 }
