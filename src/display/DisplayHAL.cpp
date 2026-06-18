@@ -470,24 +470,26 @@ void drawCardBand(int yc, float pct, uint32_t barColor, float pop, float glow,
 // WITHOUT shifting the digits: the whole string is laid out with the colon, then
 // when off we overpaint just the colon glyph's column in bg. Caller positions /
 // pushes; this only paints onto the canvas.
-constexpr int CLOCK_Y = 2;   // raised to align the VLW clock with the mascot/wifi/battery
-                             // (VLW's tall ascent otherwise drops it ~5px low)
+// Vertical center of the status-bar band (y0..y33, the strip above the first
+// card at y34). Match the battery box center (y9 + 15/2 = 16.5) and the wifi
+// bars so the clock sits level with the icons instead of riding the top edge.
+constexpr int CLOCK_CY = 16;
 void drawClockText(const String& clock, bool colonOn) {
     const int cx = canvas.width() / 2;
     useTextFont();
-    canvas.setTextDatum(textdatum_t::top_center);
+    canvas.setTextDatum(textdatum_t::middle_center);   // center the glyphs on CLOCK_CY
     canvas.setTextColor(rgb(T_TITLE));
-    canvas.drawString(clock, cx, CLOCK_Y);
+    canvas.drawString(clock, cx, CLOCK_CY);
     if (!colonOn) {
         int c = clock.indexOf(':');
         if (c >= 0) {                                  // bitmap-font advances are additive
             int left   = cx - canvas.textWidth(clock) / 2;
             int colonX = left + canvas.textWidth(clock.substring(0, c).c_str());
             int colonW = canvas.textWidth(":");
-            // Clear down to y33 (just above the first card at y34): the VLW colon's
-            // lower dot sits near the baseline (~y30), below the old fixed 18px,
-            // so a short clear left a residual dot in the off phase.
-            canvas.fillRect(colonX, CLOCK_Y, colonW, 33 - CLOCK_Y, rgb(T_BG));
+            // Overpaint the colon column across the full band height (0..33, just
+            // above the first card) so no part of the glyph survives the off phase
+            // regardless of where the centered text lands vertically.
+            canvas.fillRect(colonX, 0, colonW, 33, rgb(T_BG));
         }
     }
 }
