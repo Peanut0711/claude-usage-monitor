@@ -17,9 +17,13 @@
 // the maintainer's build, absent in the public repo. Fall back to the bundled,
 // license-clean NEXON Lv1 Gothic when they're not there, so a clone still builds.
 // (Regenerate via tools/ttf_to_lgfx_gfxfont.py; see the headers' top comment.)
-#if __has_include("tiempos_num.h")
-  #include "tiempos_num.h"
-  #define CUM_NUM_FONT TiemposNum
+// Big % number: Styrene B 18pt (Clawdmeter uses Styrene for the usage numbers,
+// not the serif Tiempos -- that's only its splash title). A touch larger than
+// the old 14pt for more presence, with the header's yAdvance hand-tightened to
+// 32 so middle-datum centering still sits it in the card band.
+#if __has_include("styrene_num.h")
+  #include "styrene_num.h"
+  #define CUM_NUM_FONT StyreneNum
 #else
   #include "nexon_num.h"
   #define CUM_NUM_FONT NexonNum
@@ -375,7 +379,7 @@ void drawMetricCard(int yc, const char* label, float pct, const String& reset,
     // real glyph height (not its top padding) is what gets centered.
     canvas.setFont(&CUM_TEXT_FONT);
     canvas.setTextDatum(textdatum_t::middle_left);
-    canvas.setTextColor(rgb(0xC8BEDC));
+    canvas.setTextColor(rgb(T_MUTED));           // warm grey (was leftover lavender)
     canvas.drawString("Resets in " + reset, cx + 18, yc + 68);
 }
 
@@ -389,12 +393,12 @@ void drawCardBand(int yc, float pct, uint32_t barColor, float pop, float glow,
     // The band stops at yc+59 so it never touches the reset text (~yc+61+). Up-
     // sparks (to ~yc+31) are inside; the lone down-spark (~yc+62) falls outside
     // the clip, so it's drawn but never pushed -> invisible, no clipping the text.
-    canvas.fillRect(cx + 16, yc + 7,  172,     30, rgb(T_CARD));   // number
+    canvas.fillRect(cx + 16, yc + 1,  172,     40, rgb(T_CARD));   // number (18pt -> taller)
     canvas.fillRect(cx + 16, yc + 28, cw - 20, 31, rgb(T_CARD));   // bar + sparks (right room)
     drawCardContent(yc, pct, barColor, pop, glow);
     drawPill(label, cx + cw - 16, yc + 8);   // bar clear nicks the pill bottom; restore it
     // Transfer only the bounding box of the changed region (clip the push).
-    lcd.setClipRect(cx + 16, yc + 7, cw - 20, 52);
+    lcd.setClipRect(cx + 16, yc + 1, cw - 20, 58);
     canvas.pushSprite(0, 0);
     lcd.clearClipRect();
 }
