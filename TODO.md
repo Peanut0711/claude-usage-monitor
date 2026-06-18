@@ -94,3 +94,81 @@
 
 ### 9.5 동봉 Quick Start 카드 (코드 아님)
 - 3단계 그림 설명서. 펌웨어는 미리 구워서 선물. (토큰은 친구 계정이라 대신 입력 불가.)
+
+---
+
+## 10. 터치 스크롤 민감도 개선
+> 배경·현재상태·전체 메커니즘은 [SCROLL.md](SCROLL.md). 로직은 전부
+> `main.cpp scrubUpdate()`. 현재 상수: `STEP=7, FIRST=3, GLITCH=70, GRACE=2`,
+> 파이프라인=1프레임.
+
+- [ ] **방향 전환 스냅** — 스와이프 부호가 바뀌면 `accum`을 0으로 스냅 + `moved=false`
+  재무장 → 전환 첫 칸을 `FIRST`로 처리. 전환 지점의 "최대 한 칸 슬랙" 제거
+  (SCROLL.md "Direction reversal" 참고). 저위험.
+- [ ] **정지 고정(settle-lock)** — 손가락이 N프레임 정지하면 커서 고정, 명확한 재드래그
+  전까지 드리프트 무시. "도착→멈춤→뗌"의 lift-off 튐을 시작지연 없이 제거. 정지 임계(≤1~2px)
+  vs 느린 드래그 튜닝 주의.
+- [ ] **입력 스무딩(저역통과)** — `filtY += (ty-filtY)*α`로 지터/스파이크 완화 → 글리치 캡
+  덜 발동. 약간 지연.
+- [ ] **비대칭 지연** — 첫 칸은 즉시 커밋(파이프라인 우회), 진행/릴리즈만 폐기 적용.
+  시작 즉각 + lift-off 보호 동시. 코드 늘어남.
+- [ ] **터치 드라이버/lift 감지** — CST226SE는 폴링(INT 미배선, POWER.md). 컨트롤러가
+  마지막 보고에 lift 플래그를 준다면 실제 lift-off 프레임만 정밀 폐기 가능 → 파이프라인 단축/제거.
+
+## 11. WiFi 연결 메뉴 (집 ↔ 회사 수동 전환)
+> 목표: 네비 메뉴에 `WiFi`(또는 `Connect`) 항목 → 들어가면 **저장된 망 목록 + 현재 신호세기**
+> 표시, 홈버튼으로 선택해 **수동 연결**. 장소 이동 시 자동 로밍을 기다리지 않고 강제 선택.
+
+### 이미 있는 것 (재사용)
+- 저장 목록 RAM 캐시: `gSsids[]/gPws[]/gWifiN` (`main.cpp`, 부팅 시 로드). `CUM_WIFI_MAX=3`.
+- `net::connectMulti(ssids, pw, n, preferredIdx)` — 특정 저장망 직접 연결(인덱스 지정 시
+  무스캔 시도→실패 시 스캔 폴백). 수 초 블로킹.
+- `net::scanNetworks(out, maxN)` — 전채널 스캔 ~2~4초 블로킹, 주변 SSID 반환 → 저장망과 매칭해 RSSI.
+- `net::isConnected()/ssid()/rssi()`, `WiFi.RSSI()`. `storage::lastWifi()/setLastWifi()`.
+- 로밍 폴백 `roamReconnect()`(선택망 부재 시 처리). UI 패턴: 설정 화면
+  (`drawSettings` + `gSettingsOpen` 모달) 그대로 복제 — 스와이프/IO12·IO16/홈선택/Back행.
+
+### 화면 구성
+```
+WiFi
+  HomeNet      ||||   <- 저장 SSID + 신호바/ dBm; 현재 연결망 표시(체크/코랄)
+  OfficeNet    ||
+  CafeNet      (x)    <- 저장됐지만 현재 범위 밖
+  Rescan
+  Back
+```
+- 저장망당 1행(최대 3), 각 행에 신호 표시(`drawWifiBars` 재사용 또는 dBm 텍스트).
+- **현재 연결망** 표시(체크/코랄). 저장됐지만 스캔에 없으면 "(x)"로 범위 밖 표시.
+- `Rescan` 행 → 재스캔으로 신호 갱신. `Back` 행 → 메뉴 복귀.
+
+### 동작
+- 메뉴/설정과 동일: 스와이프 또는 IO12(다운)/IO16(업) 커서 이동(순환), **홈버튼으로 실행**.
+- 망 행에서 홈 → **연결**: `connectMulti(gSsids, gPws, gWifiN, 인덱스)` 블로킹 →
+  "Connecting…" 스플래시(`connectWithAnim`처럼 다른 코어 애니). 성공 시
+  `setLastWifi(index)` + 연결표시, 실패(범위 밖) 시 "Not found/failed" 후 잔류.
+- `Rescan` 홈 → "Scanning…" 후 신호 재표시. `Back` 홈 → 메뉴.
+
+### 신호 갱신 방식 (결정 필요)
+- **추천: 진입 시 1회 스캔 + 수동 Rescan**. 단순/저전력. 진입 시 ~2~4초 "Scanning…".
+- 대안: 화면 열려있는 동안 주기 자동 재스캔 — 부드럽지만 전력·블로킹↑.
+
+### 엣지/주의
+- **스캔·연결 모두 블로킹** → "Scanning…/Connecting…" 표시 필수, 가능하면 다른 코어에서
+  돌려 UI·절전 루프 안 굶게(`connectWithAnim`/부트애니 태스크 참고). 연결 중 폴 충돌 방지.
+- **저장된 망 중 선택만** — 새 망 추가는 셋업 포털 영역(범위 밖).
+- 수동 연결 후 새 링크로 폴 재개, 이후 위치변경은 자동 로밍 폴백이 커버.
+- 평문 새로 저장 금지 — 비번은 이미 `gPws[]` RAM에 있음, `connectMulti`에 전달만.
+
+### 구현 스케치
+1. `MenuItem`에 `MENU_WIFI` 추가 + `kMenuRows`에 `{"WiFi", MENU_WIFI}`(위치는 Settings 근처).
+2. 모달 상태 `gWifiOpen` + `gWifiCursor` (`gSettingsOpen` 미러).
+3. `display::drawWifi(...)` — 타이틀/저장행+신호/Rescan/Back; `drawScrollbar`·커서카드·
+   `drawWifiBars` 재사용.
+4. 진입 스캔: `{ssid→rssi, present}` 캐시, 저장 SSID와 이름 매칭.
+5. `menuActivate`의 `MENU_WIFI`가 WiFi 화면 열기(먼저 스캔).
+6. WiFi 모달: `scrubUpdate`+IO12/IO16 커서; 홈 → 연결/재스캔/Back, 스플래시 표시.
+
+### 결정할 것 (구현 전)
+- 신호 갱신: **진입 1회 + Rescan**(추천) vs 주기 자동.
+- 항목 이름: **`WiFi`** vs `Connect` (추천 `WiFi`).
+- dBm 숫자 vs 바만 표시.

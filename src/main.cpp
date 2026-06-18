@@ -939,29 +939,42 @@ void settingsActivate(int cursor) {
 // drag, not where you tap. Grab anywhere in the band, then swipe up/down; a tap
 // with no vertical travel does nothing. Returns true when the cursor changed.
 bool scrubUpdate(bool touching, int tx, int ty, int rows, int& cursor) {
-    static bool active = false;
-    static int  lastY = 0, accum = 0, lost = 0;
-    constexpr int STEP   = 11;   // px of vertical swipe per row (lower = more sensitive)
+    static bool active = false, moved = false;
+    static int  lastY = 0, accum = 0, lost = 0, p1 = 0;
+    constexpr int STEP   = 7;    // px of vertical swipe per row (lower = more sensitive)
+    constexpr int FIRST  = 3;    // smaller threshold for the FIRST row -> snappy start, no dead feel
     constexpr int GLITCH = 70;   // ignore a single-frame jump bigger than this (touch glitch)
     constexpr int GRACE  = 2;    // tolerate this many dropped-touch frames mid-swipe
 
     if (!touching) {
         if (active && ++lost <= GRACE) return false;   // brief contact dropout: keep the swipe alive
-        active = false; lost = 0; return false;
+        active = false; lost = 0; p1 = 0; return false;   // release discards the last (lift-off) frame
     }
     lost = 0;
     if (!active) {
         if (!display::inScrollBand(tx, ty, rows)) return false;   // grab inside the band only
-        active = true; lastY = ty; accum = 0;
+        active = true; moved = false; lastY = ty; accum = 0; p1 = 0;
         return false;                                             // anchor only -- no jump
     }
     int dy = ty - lastY;
     lastY = ty;
     if (dy > GLITCH || dy < -GLITCH) dy = 0;   // reject a glitchy coordinate spike (no sudden jump)
-    accum += dy;
+    // Apply movement one frame late: a frame's delta is committed only once the
+    // next touch frame confirms the finger was still down. On release the held
+    // frame is dropped -- which kills the lift-off coordinate shift that bumps the
+    // cursor on finger-up. (Shorter 1-frame delay -> snappier start.)
+    accum += p1;
+    p1 = dy;
     bool changed = false;
-    while (accum >= STEP && cursor < rows - 1) { cursor++; accum -= STEP; changed = true; }
-    while (accum <= -STEP && cursor > 0)       { cursor--; accum += STEP; changed = true; }
+    // At most one row per frame (if, not while), so a hard/fast push can't burst
+    // several rows at once. The first row of a drag uses a smaller threshold so the
+    // start feels responsive; later rows use the full STEP. Cap the leftover to one
+    // STEP so a fast flick carries over at most one extra row, never a pile.
+    int thresh = moved ? STEP : FIRST;
+    if      (accum >=  thresh && cursor < rows - 1) { cursor++; accum -= thresh; changed = true; moved = true; }
+    else if (accum <= -thresh && cursor > 0)        { cursor--; accum += thresh; changed = true; moved = true; }
+    if (accum >  STEP) accum =  STEP;
+    if (accum < -STEP) accum = -STEP;
     if (cursor == rows - 1 && accum > 0) accum = 0;   // don't bank over-drag at the ends
     if (cursor == 0 && accum < 0)        accum = 0;
     return changed;
