@@ -289,18 +289,33 @@ void drawWifiBars(int x, int y, int rssi) {
     }
 }
 
+// Lucide-style battery: anti-aliased rounded outline + terminal nub, with the
+// level shown as 0-4 discrete bars (charging shows a bolt instead). Drawn with
+// LovyanGFX's smooth primitives so the edges match the VLW text.
 void drawBattery(int x, int y, int pct, bool charging) {
-    const int w = 30, h = 16;
     if (pct < 0) pct = 0; if (pct > 100) pct = 100;
-    canvas.drawRoundRect(x, y, w, h, 3, rgb(T_TITLE));
-    canvas.fillRect(x + w, y + (h - 6) / 2, 2, 6, rgb(T_TITLE));   // nub
-    uint32_t fill = (pct <= 15 && !charging) ? T_CORAL : T_GREEN;
-    int fw = (w - 4) * pct / 100;
-    if (fw > 0) canvas.fillRect(x + 2, y + 2, fw, h - 4, rgb(fill));
-    if (charging) {                                               // lightning bolt
+    const int bw = 29, bh = 15, r = 3;
+    const uint32_t line = T_TITLE;
+
+    // Outline: outer smooth round-rect in the line color, inner punched to bg
+    // (a 2px AA stroke), plus the positive-terminal nub on the right.
+    canvas.fillSmoothRoundRect(x, y, bw, bh, r, rgb(line));
+    canvas.fillSmoothRoundRect(x + 2, y + 2, bw - 4, bh - 4, r - 1, rgb(T_BG));
+    canvas.fillSmoothRoundRect(x + bw, y + (bh - 6) / 2, 3, 6, 1, rgb(line));
+
+    if (charging) {                          // shaped lightning bolt (Lucide charging)
+        // A thin AA line can't read as a bolt at this size, so use the designed
+        // bolt glyph; its 1-bit edges are negligible at 11x12 in green.
         drawBits(CC_BOLT, CC_BOLT_W, CC_BOLT_H,
-                 x + (w - CC_BOLT_W) / 2, y + (h - CC_BOLT_H) / 2, 1, T_BG);
+                 x + (bw - CC_BOLT_W) / 2, y + (bh - CC_BOLT_H) / 2, 1, T_GREEN);
+        return;
     }
+    // Level bars (Lucide-style): one per ~33%, coral when low.
+    int bars = pct >= 67 ? 3 : pct >= 34 ? 2 : pct >= 1 ? 1 : 0;
+    uint32_t bc = (pct <= 15) ? T_CORAL : T_GREEN;
+    const int ix = x + 4, iy = y + 3, ih = bh - 6, barW = 4, gap = 4;
+    for (int i = 0; i < bars; i++)
+        canvas.fillSmoothRoundRect(ix + i * (barW + gap), iy, barW, ih, 1, rgb(bc));
 }
 
 // Rounded "pill" badge, right-aligned to rightX. Returns its left edge.
