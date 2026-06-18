@@ -772,6 +772,21 @@ void loop() {
         case State::Running: {
             bool asleep = screenAsleep();
 
+            // Reflect a USB plug/unplug on the battery icon promptly instead of
+            // waiting for the next poll/refresh. gOnUsb is refreshed ~1/s in
+            // applyBacklight; on a change, re-render the current view (which
+            // re-reads power state). Defer while an animation/poll owns the
+            // screen -- prevCharge isn't committed until we actually redraw, so
+            // the change is picked up on the next idle iteration.
+            static int prevCharge = -1;
+            int chargeNow = gOnUsb ? 1 : 0;
+            if (prevCharge == -1) {
+                prevCharge = chargeNow;                 // seed without a redraw
+            } else if (prevCharge != chargeNow && !gAnimating && !gPollRunning) {
+                prevCharge = chargeNow;
+                renderCurrentView();
+            }
+
             // Proximity wake: detect a far->near transition (a hand approaching).
             // Evaluated every iteration so the rising edge is never missed; only
             // used to wake from inactivity sleep, not a deliberate manual-off.

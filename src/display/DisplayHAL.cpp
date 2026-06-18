@@ -461,7 +461,8 @@ void drawCardBand(int yc, float pct, uint32_t barColor, float pop, float glow,
 // WITHOUT shifting the digits: the whole string is laid out with the colon, then
 // when off we overpaint just the colon glyph's column in bg. Caller positions /
 // pushes; this only paints onto the canvas.
-constexpr int CLOCK_Y = 7;
+constexpr int CLOCK_Y = 2;   // raised to align the VLW clock with the mascot/wifi/battery
+                             // (VLW's tall ascent otherwise drops it ~5px low)
 void drawClockText(const String& clock, bool colonOn) {
     const int cx = canvas.width() / 2;
     useTextFont();
