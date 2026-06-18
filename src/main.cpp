@@ -557,6 +557,20 @@ void renderCurrentView() {
     }
 }
 
+// Wake from sleep: show the current view, and refetch only if the data is no
+// longer fresh (last poll older than one poll interval). A quick on/off within
+// ~1 min skips the redundant API call + refresh animation -- the data is already
+// current, so just show it and let the backlight fade it in.
+void wakeShow() {
+    noteInput();
+    renderCurrentView();
+    if (millis() - gLastPoll >= CUM_POLL_INTERVAL_MS) {
+        requestPoll(true);
+        gLastPoll = millis();
+        if (gPage == PAGE_DASH) display::drawRefreshAnim(gAnimFrame++);
+    }
+}
+
 void enterSetup() {
     gState = State::Setup;
     portal::scanNetworks();             // cache nearby SSIDs before the AP goes up
@@ -838,14 +852,8 @@ void loop() {
             // IO16: wake (show current view + animated refresh) if off, else force off.
             if (io16Pressed()) {
                 if (asleep) {
-                    gManualOff = false; noteInput();
-                    renderCurrentView();             // last view -> veil backdrop
-                    requestPoll(true);               // play the refresh overlay + refetch
-                    gLastPoll = millis();
-                    // Paint the dimmed overlay NOW, while the backlight is still off,
-                    // so the first frame shown when it turns back on is the overlay --
-                    // not a bright flash of the undimmed dashboard.
-                    if (gPage == PAGE_DASH) display::drawRefreshAnim(gAnimFrame++);
+                    gManualOff = false;
+                    wakeShow();                      // refresh only if data is stale
                 } else {
                     gManualOff = true;
                 }
@@ -860,13 +868,7 @@ void loop() {
                 // only from inactivity sleep (not after a manual IO16 off).
                 if (doubleTapDetected() || io12Pressed() || (proxRise && !gManualOff)) {
                     gManualOff = false;
-                    noteInput();
-                    renderCurrentView();             // last view -> veil backdrop
-                    requestPoll(true);               // play the refresh overlay + refetch
-                    gLastPoll = millis();
-                    // Draw the dimmed overlay before the backlight returns -> no
-                    // bright-dashboard flash on wake.
-                    if (gPage == PAGE_DASH) display::drawRefreshAnim(gAnimFrame++);
+                    wakeShow();                      // refresh only if data is stale
                 }
                 touch::homePressed();                // discard while asleep
                 delay(30);
