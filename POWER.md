@@ -50,13 +50,18 @@ busy-loop, which only true light sleep can cut).
   just the backlight LED. `panelSleep()`/`panelWake()` in `main.cpp` keep it
   idempotent; `wakeShow()` and the awake transition both wake it before any draw.
 - **WiFi radio off while asleep** (`net::radioOff()` on the screen-off transition,
-  battery only): the radio is fully stopped, not just modem-sleeping. We already
-  don't poll while asleep, so an associated link that wakes every DTIM to hear
-  beacons is pure waste. Wake reconnects via `roamReconnect()` (which also handles
-  an office→home location change) and forces a fresh poll, so the only cost is the
-  ~2–4 s rescan on wake. This pairs with the runtime-roaming work: the same scan
-  path that roams between saved networks also serves as the wake-from-radio-off
-  reconnect. Only in the Running state — Setup must keep its SoftAP up.
+  **battery only** — skipped on USB, where there's no power gain and it would only
+  add wake latency): the radio is fully stopped, not just modem-sleeping. We
+  already don't poll while asleep, so an associated link that wakes every DTIM to
+  hear beacons is pure waste. **Wake re-associates non-blocking** (`net::radioOn()`
+  / `radioWake()`): it targets the last-good AP directly (no scan) and returns
+  immediately, so the screen lights up instantly and a poll ~2 s later refreshes
+  once the link is up. Crucially the wake does **not** run a blocking scan — an
+  earlier version called `roamReconnect()` (a 2–4 s all-channel scan) inline, which
+  kept the backlight off and made the button feel unresponsive. A genuine location
+  change (last AP absent) is instead handled by the poll-fail escalation, which
+  rescans/roams over the next few poll cycles. Only in the Running state — Setup
+  must keep its SoftAP up.
 - **Drain-rate windowing** (`battEstimate()`): the Battery page %/h and time-left
   are computed from a **trailing 30-min slope of the recorded history**, not a
   since-unplug average. The SY6970 has no fuel gauge, so % is an OCV estimate;

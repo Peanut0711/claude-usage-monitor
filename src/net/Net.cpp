@@ -112,6 +112,17 @@ void      reconnect()   { WiFi.reconnect(); }   // re-associate to the stored AP
 // wakes every DTIM to hear beacons, which is pure waste when we never poll while
 // asleep. A subsequent connectMulti() re-enables STA mode and re-associates.
 void      radioOff()    { WiFi.disconnect(true); WiFi.mode(WIFI_OFF); }
+
+// Non-blocking counterpart to radioOff(): restore STA mode + modem sleep and
+// kick off association to the given AP (or the persisted one if empty). Returns
+// immediately -- the link comes up over the next ~1 s in the background, so the
+// caller (wake) never freezes. No scan, so a same-place off/on reconnects fast.
+void      radioOn(const String& ssid, const String& pass) {
+    WiFi.mode(WIFI_STA);
+    WiFi.setSleep(true);
+    if (ssid.length()) WiFi.begin(ssid.c_str(), pass.c_str());
+    else               WiFi.begin();
+}
 IPAddress localIP()     { return WiFi.localIP(); }
 int       rssi()        { return WiFi.RSSI(); }
 String    ssid()        { return WiFi.SSID(); }

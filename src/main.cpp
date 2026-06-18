@@ -75,6 +75,16 @@ bool gPanelSlept = false;
 void panelSleep() { if (!gPanelSlept) { display::sleep(); gPanelSlept = true; } }
 void panelWake()  { if (gPanelSlept) { display::wake();  gPanelSlept = false; } }
 
+// Bring the radio back after a screen-off power-down, non-blocking: target the
+// last-good AP directly (no scan) so a same-place off/on re-associates in ~1 s
+// without freezing the wake. A genuine location change won't find that AP -- the
+// poll-fail path then escalates to a full rescan-roam.
+void radioWake() {
+    int i = storage::lastWifi();                       // 0xFF when unrecorded
+    if (i >= 0 && i < gWifiN) net::radioOn(gSsids[i], gPws[i]);
+    else                      net::radioOn(String(), String());
+}
+
 bool screenAsleep() {
     if (gManualOff) return true;
     // On USB we only dim, never sleep, so input keeps acting normally.
@@ -671,13 +681,17 @@ bool roamReconnect();   // defined after connectWithAnim (needs the boot-anim he
 
 void wakeShow() {
     noteInput();
-    panelWake();   // panel was slept on screen-off -> restore it before drawing
-    // If the link dropped while asleep (e.g. carried home from the office), the
-    // saved AP is gone -- rescan once, now that the user is looking, and force a
-    // fresh poll on success so the screen isn't stale the moment it lights up.
-    if (!net::isConnected() && roamReconnect()) gLastPoll = 0;
-    renderCurrentView();
-    if (millis() - gLastPoll >= CUM_POLL_INTERVAL_MS) {
+    panelWake();          // panel was slept on screen-off -> restore it before drawing
+    renderCurrentView();  // show the last data immediately -- never block the turn-on
+    // The radio is powered down while asleep on battery. Re-associate non-blocking
+    // (targeted, no scan), so the screen is already up; a poll a moment later
+    // refreshes once the link settles. A location change is handled by the
+    // poll-fail rescan-roam, not here, so wake never stalls on a 2-4 s scan.
+    if (!net::isConnected()) {
+        radioWake();
+        gPollBackoffMs = 2000;            // first poll ~2 s out, giving the link time
+        gLastPoll = millis();
+    } else if (millis() - gLastPoll >= CUM_POLL_INTERVAL_MS) {
         requestPoll(true);
         gLastPoll = millis();
         if (gPage == PAGE_DASH) display::drawRefreshAnim(gAnimFrame++);
@@ -943,8 +957,14 @@ void loop() {
             pmAsleep = a;
             setCpuFrequencyMhz(a ? 80 : 240);
             if (gState == State::Running) {
-                if (a) { panelSleep(); net::radioOff(); }
-                else   { panelWake();  roamReconnect(); }
+                if (a) {
+                    panelSleep();
+                    if (!gOnUsb) net::radioOff();   // battery only: no power gain on USB,
+                                                    // and it would add wake-reconnect lag
+                } else {
+                    panelWake();
+                    if (!net::isConnected()) radioWake();   // non-blocking re-associate
+                }
             }
         }
     }

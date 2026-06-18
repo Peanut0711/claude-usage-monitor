@@ -45,6 +45,12 @@ void      reconnect();
 // Fully power down the radio (more than modem sleep) to save battery while the
 // screen is asleep -- we don't poll asleep, and wake reconnects via connectMulti.
 void      radioOff();
+// Re-enable the STA radio and start associating WITHOUT blocking (no scan): pass
+// the last-good ssid/pass to target it directly, or empty strings to reuse the
+// persisted config. Used on wake so the screen lights up instantly; the poll loop
+// refreshes once the link is up. A location change is handled by the poll-fail
+// rescan-roam, not here.
+void      radioOn(const String& ssid, const String& pass);
 IPAddress localIP();
 int       rssi();           // dBm, valid when connected
 String    ssid();           // SSID of the connected network
