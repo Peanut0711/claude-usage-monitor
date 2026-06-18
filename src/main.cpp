@@ -272,8 +272,8 @@ constexpr uint32_t REST_MS = 150;        // pause after landing before the fanfa
 constexpr uint32_t FAN_MS  = 500;        // fanfare burst fade length (after the rest)
 constexpr uint32_t GLOW_DELAY = 0;       // bar/number white-glow lag behind the spark burst (0 = synced with the final tick)
 
-// IO12 cycles pages: dashboard -> detail -> history.
-enum { PAGE_DASH = 0, PAGE_DETAIL = 1, PAGE_HISTORY = 2, PAGE_COUNT = 3 };
+// IO12 cycles pages: dashboard -> detail -> history -> battery.
+enum { PAGE_DASH = 0, PAGE_DETAIL = 1, PAGE_HISTORY = 2, PAGE_BATTERY = 3, PAGE_COUNT = 4 };
 int           gPage = PAGE_DASH;
 
 // Utilization history (one sample per successful poll), oldest..newest.
@@ -364,24 +364,82 @@ String fmtUptime() {
     return String(m) + "m " + String(s % 60) + "s";
 }
 
-// Rough battery time-left from the drain since the last unplug. Returns "" while
-// charging/untracked, "measuring..." until there's enough drop+time to trust the
-// rate, else "~Hh Mm (R%/h)". A ballpark only: the voltage->% curve is flat in
-// the middle, so the linear extrapolation to 0% can be well off.
-String fmtBattLeft() {
-    if (gDischStartPct < 0) return "";                       // on USB / not tracking
-    int cur = power::percent();
-    int drop = gDischStartPct - cur;
+// Rough battery state derived from the drain since the last unplug. A ballpark
+// only: the SY6970 has no fuel gauge, so % is estimated from cell voltage, and
+// the Li-ion curve is flat in the middle -> the linear extrapolation to 0% can be
+// well off. `tracking` is false on USB; `measuring` is true until there's enough
+// drop + time for a trustworthy rate.
+struct BattEst {
+    int   pct       = 100;
+    bool  tracking  = false;
+    bool  measuring = false;
+    float ratePerHr = 0.0f;   // %/hour drain (valid when tracking && !measuring)
+    int   etaMin    = -1;     // minutes to 0% (-1 if unknown)
+};
+
+BattEst battEstimate() {
+    BattEst e;
+    e.pct = power::percent();
+    if (gDischStartPct < 0) return e;                        // on USB / not tracking
+    e.tracking = true;
+    int drop = gDischStartPct - e.pct;
     uint32_t el = millis() - gDischStartMs;
-    if (drop < 2 || el < 10UL * 60 * 1000) return "measuring...";
-    float ratePerHr = (float)drop * 3600000.0f / (float)el;  // %/hour
-    if (ratePerHr < 0.1f) return "measuring...";
-    float etaHr = cur / ratePerHr;
+    if (drop < 2 || el < 10UL * 60 * 1000) { e.measuring = true; return e; }
+    float rate = (float)drop * 3600000.0f / (float)el;       // %/hour
+    if (rate < 0.1f) { e.measuring = true; return e; }
+    e.ratePerHr = rate;
+    float etaHr = (float)e.pct / rate;
     if (etaHr > 99) etaHr = 99;
-    int h = (int)etaHr, m = (int)((etaHr - h) * 60);
+    e.etaMin = (int)(etaHr * 60.0f + 0.5f);
+    return e;
+}
+
+// Battery time-left for the Detail row: "" while charging/untracked,
+// "measuring..." until the rate settles, else "~Hh Mm (R%/h)".
+String fmtBattLeft() {
+    BattEst e = battEstimate();
+    if (!e.tracking)  return "";
+    if (e.measuring)  return "measuring...";
     char b[32];
-    snprintf(b, sizeof(b), "~%dh %dm (%.1f%%/h)", h, m, ratePerHr);
+    snprintf(b, sizeof(b), "~%dh %dm (%.1f%%/h)",
+             e.etaMin / 60, e.etaMin % 60, e.ratePerHr);
     return String(b);
+}
+
+// Battery-% history for the Battery page graph. One sample per gBattSampleMs while
+// on battery, reset on unplug. Stores minutes-since-unplug + percent so the graph
+// x-axis is real elapsed time. On overflow, decimate (drop every other point) and
+// double the interval, so an arbitrarily long discharge still fits the buffer.
+constexpr int BATT_HIST_N = 96;
+uint16_t gBattMin[BATT_HIST_N];
+uint8_t  gBattPct[BATT_HIST_N];
+int      gBattHistCount = 0;
+uint32_t gBattSampleMs  = 60000;
+uint32_t gBattLastSample = 0;
+
+void battHistReset() {
+    gBattHistCount = 0;
+    gBattSampleMs  = 60000;
+    gBattLastSample = 0;
+}
+
+void battHistSample() {
+    if (gDischStartPct < 0) return;                          // on USB: not tracking
+    uint32_t now = millis();
+    if (gBattHistCount != 0 && now - gBattLastSample < gBattSampleMs) return;
+    gBattLastSample = now;
+    if (gBattHistCount >= BATT_HIST_N) {                     // decimate: keep even idx
+        int j = 0;
+        for (int i = 0; i < gBattHistCount; i += 2) {
+            gBattMin[j] = gBattMin[i]; gBattPct[j] = gBattPct[i]; j++;
+        }
+        gBattHistCount = j;
+        gBattSampleMs *= 2;
+    }
+    uint32_t em = (now - gDischStartMs) / 60000UL;
+    gBattMin[gBattHistCount] = em > 65535U ? 65535U : (uint16_t)em;
+    gBattPct[gBattHistCount] = (uint8_t)power::percent();
+    gBattHistCount++;
 }
 
 // Draw the dashboard from the currently-shown (animated) values, with optional
@@ -545,6 +603,21 @@ void renderCurrentView() {
     if (gPage == PAGE_HISTORY) {
         Burn b = computeBurn();
         display::drawHistory(gH5, gH7, gHistCount, b.eta5, b.eta7, b.peak5, b.peak7);
+        return;
+    }
+    if (gPage == PAGE_BATTERY) {
+        BattEst e = battEstimate();
+        display::BatteryPage bp;
+        bp.pct       = e.pct;
+        bp.charging  = power::charging();
+        bp.tracking  = e.tracking;
+        bp.measuring = e.measuring;
+        bp.ratePerHr = e.ratePerHr;
+        bp.etaMin    = e.etaMin;
+        bp.histMin   = gBattMin;
+        bp.histPct   = gBattPct;
+        bp.histCount = gBattHistCount;
+        display::drawBatteryPage(bp);
         return;
     }
     if (gLastUsage.ok) {
@@ -854,8 +927,14 @@ void loop() {
             int chargeNow = gOnUsb ? 1 : 0;
             // Start tracking battery drain on unplug (chargeNow 0), stop on plug.
             auto trackBattery = [&]() {
-                if (chargeNow == 0) { gDischStartPct = power::percent(); gDischStartMs = millis(); }
-                else                { gDischStartPct = -1; }
+                if (chargeNow == 0) {                       // unplugged -> start a fresh session
+                    gDischStartPct = power::percent();
+                    gDischStartMs  = millis();
+                    battHistReset();
+                    battHistSample();                       // seed the graph's first point
+                } else {
+                    gDischStartPct = -1;                    // on USB: stop tracking (keep last graph)
+                }
             };
             if (prevCharge == -1) {
                 prevCharge = chargeNow;                 // seed without a redraw
@@ -865,6 +944,7 @@ void loop() {
                 trackBattery();
                 renderCurrentView();
             }
+            battHistSample();   // record a battery-% point if due (self-throttled)
 
             // Proximity wake: detect a far->near transition (a hand approaching).
             // Evaluated every iteration so the rising edge is never missed; only

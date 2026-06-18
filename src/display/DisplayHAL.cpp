@@ -641,6 +641,140 @@ void drawHistory(const float* h5, const float* h7, int count,
     present();
 }
 
+namespace {
+// A dotted line from (x0,y0) to (x1,y1): small dots spaced ~`step` px along the
+// segment. Used for the battery projection (a guess, so it reads as not-solid).
+void drawDottedLine(int x0, int y0, int x1, int y1, int step, int rad,
+                    uint32_t color) {
+    float dx = (float)(x1 - x0), dy = (float)(y1 - y0);
+    float len = sqrtf(dx * dx + dy * dy);
+    if (len < 1.0f) { canvas.fillCircle(x0, y0, rad, rgb(color)); return; }
+    int n = (int)(len / step);
+    for (int i = 0; i <= n; i++) {
+        float t = (float)i / (n > 0 ? n : 1);
+        canvas.fillCircle(x0 + (int)(dx * t), y0 + (int)(dy * t), rad, rgb(color));
+    }
+}
+
+// Whole-minutes -> compact "1d 13h" / "5h 20m" / "45m" / "<1m" / "--".
+String battTime(int mins) {
+    if (mins < 0)  return "--";
+    if (mins < 1)  return "<1m";
+    int h = mins / 60, m = mins % 60;
+    if (h >= 24) return String(h / 24) + "d " + String(h % 24) + "h";
+    if (h > 0)   return String(h) + "h " + String(m) + "m";
+    return String(m) + "m";
+}
+}  // namespace
+
+void drawBatteryPage(const BatteryPage& b) {
+    drawHeader("Battery");
+
+    int pct = b.pct;
+    if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+    uint32_t pctCol = (pct <= 15) ? T_CORAL : T_GREEN;
+
+    // --- Header: big % (left) + time-left / status (right) ------------------
+    char num[8];
+    snprintf(num, sizeof(num), "%d", pct);
+    canvas.setTextDatum(textdatum_t::baseline_left);
+    canvas.setTextColor(rgb(pctCol));
+    const int nx = 18, baseY = 84;
+    int dw;
+#if CUM_NUM_VLW
+    canvas.loadFont(StyreneNumVlw);
+    canvas.drawString(num, nx, baseY);
+    dw = canvas.textWidth(num);
+    canvas.loadFont(StyrenePctVlw);
+    canvas.drawString("%", nx + dw + 1, baseY);
+    canvas.unloadFont();
+#else
+    canvas.setFont(&CUM_NUM_FONT);
+    canvas.drawString(num, nx, baseY);
+    dw = canvas.textWidth(num);
+    canvas.setFont(&CUM_PCT_FONT);
+    canvas.drawString("%", nx + dw + 1, baseY);
+#endif
+
+    // Right side: "time left" (or charging/measuring note) over a small caption.
+    String big, cap;
+    if (b.charging || !b.tracking) {
+        big = "On USB";
+        cap = "charging";
+    } else if (b.measuring) {
+        big = "measuring";
+        cap = "need a few % drop";
+    } else {
+        big = battTime(b.etaMin) + " left";
+        char r[24];
+        snprintf(r, sizeof(r), "%.1f%%/h", b.ratePerHr);
+        cap = String(r);
+    }
+    canvas.setFont(&fonts::FreeSansBold12pt7b);
+    canvas.setTextDatum(textdatum_t::baseline_right);
+    canvas.setTextColor(rgb(T_TITLE));
+    canvas.drawString(big, canvas.width() - 18, 66);
+    canvas.setFont(&fonts::FreeSans9pt7b);
+    canvas.setTextColor(rgb(T_MUTED));
+    canvas.drawString(cap, canvas.width() - 18, 88);
+
+    // --- Discharge graph ----------------------------------------------------
+    const int x0 = 32, y0 = 104, w = canvas.width() - 52, h = 86;
+
+    // Gridlines + % labels at 0 / 50 / 100.
+    canvas.setFont(&fonts::Font0);
+    canvas.setTextDatum(textdatum_t::middle_right);
+    for (int p = 0; p <= 100; p += 50) {
+        int gy = y0 + h * (100 - p) / 100;
+        canvas.drawFastHLine(x0, gy, w, rgb(T_TRACK));
+        canvas.setTextColor(rgb(T_MUTED));
+        canvas.drawString(String(p), x0 - 5, gy);
+    }
+
+    if (!b.tracking || b.histCount < 1) {
+        canvas.setFont(&fonts::FreeSans9pt7b);
+        canvas.setTextDatum(textdatum_t::middle_center);
+        canvas.setTextColor(rgb(T_MUTED));
+        const char* msg = b.tracking ? "collecting data..." : "plug out to track";
+        canvas.drawString(msg, canvas.width() / 2, y0 + h / 2);
+        present();
+        return;
+    }
+
+    // X-axis spans 0..xMax minutes: the recorded history plus, if known, the
+    // projection out to 0%. So the solid line fills the left part and the dotted
+    // projection reaches the right edge exactly at the estimated empty time.
+    int nowMin = b.histMin[b.histCount - 1];
+    int endMin = (b.etaMin >= 0) ? nowMin + b.etaMin : nowMin;
+    int xMax   = endMin > 0 ? endMin : 1;
+    auto px = [&](int m) { return x0 + (int)((long)m * w / xMax); };
+
+    // Solid recorded line (2px) through the samples.
+    for (int i = 1; i < b.histCount; i++) {
+        int xa = px(b.histMin[i - 1]), xb = px(b.histMin[i]);
+        int ya = plotY(b.histPct[i - 1], y0, h), yb = plotY(b.histPct[i], y0, h);
+        canvas.drawLine(xa, ya, xb, yb, rgb(pctCol));
+        canvas.drawLine(xa, ya + 1, xb, yb + 1, rgb(pctCol));
+    }
+
+    // Dotted projection from the latest sample down to 0% at endMin.
+    int cxp = px(nowMin), cyp = plotY(pct, y0, h);
+    if (b.etaMin >= 0)
+        drawDottedLine(cxp, cyp, px(endMin), plotY(0, y0, h), 7, 1, T_MUTED);
+    canvas.fillCircle(cxp, cyp, 3, rgb(pctCol));     // "you are here" marker
+
+    // X-axis caption: elapsed-since-unplug (left) and projected-empty (right).
+    canvas.setFont(&fonts::Font0);
+    canvas.setTextColor(rgb(T_MUTED));
+    canvas.setTextDatum(textdatum_t::top_left);
+    canvas.drawString(battTime(nowMin) + " on battery", x0, y0 + h + 5);
+    if (b.etaMin >= 0) {
+        canvas.setTextDatum(textdatum_t::top_right);
+        canvas.drawString("empty in " + battTime(b.etaMin), x0 + w, y0 + h + 5);
+    }
+    present();
+}
+
 void drawSplash(int yoff) {
     canvas.fillScreen(rgb(T_BG));
     drawBits(CC_LOGO_L, CC_LOGO_L_W, CC_LOGO_L_H,           // 90px native logo

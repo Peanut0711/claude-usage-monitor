@@ -60,6 +60,27 @@ void drawHistory(const float* h5, const float* h7, int count,
                  int eta5min = -1, int eta7min = -1,
                  int peak5 = -1, int peak7 = -1);
 
+// Battery page (toggled with IO12, after History). Big % + time-left header and
+// a discharge graph: a solid line of the recorded battery % since the last
+// unplug, plus a dotted line projecting the current drain rate down to 0%.
+//   histMin[i] = whole minutes since unplug, histPct[i] = battery % (0..100),
+//   oldest..newest, `histCount` entries.
+//   tracking  = on battery and recording (false on USB).
+//   measuring = tracking but not enough drop/time yet for a trustworthy rate.
+//   ratePerHr / etaMin = drain rate and minutes-to-0% (etaMin -1 if unknown).
+struct BatteryPage {
+    int    pct       = 100;
+    bool   charging  = true;
+    bool   tracking  = false;
+    bool   measuring = false;
+    float  ratePerHr = 0.0f;
+    int    etaMin    = -1;
+    const uint16_t* histMin = nullptr;
+    const uint8_t*  histPct = nullptr;
+    int    histCount = 0;
+};
+void drawBatteryPage(const BatteryPage& b);
+
 // --- Stage 4 dashboard ------------------------------------------------------
 struct Dashboard {
     float  current      = 0;    // 5h utilization, percent 0..100
