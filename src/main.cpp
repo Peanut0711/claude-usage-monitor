@@ -41,29 +41,77 @@ bool     gWasTouched = false;
 uint32_t gLastInput  = 0;     // millis() of last input (touch/button)
 bool     gManualOff  = false; // user forced backlight off via IO16
 uint8_t  gActiveBright = 200; // brightness when awake (left-edge drag sets it)
-int      gCurBright  = -1;    // last applied brightness (cache)
+int      gCurBright  = -1;    // last applied brightness (cache; -1 = unset)
+uint32_t gFadeLast   = 0;     // millis() of the last brightness fade step
 constexpr uint32_t DIM_MS    = 60000;    // idle -> dim (60 s)
 constexpr uint32_t OFF_MS    = 120000;   // idle -> off (120 s)
 constexpr uint8_t  DIM_LEVEL = 153;      // 60% of 255
+// Ease brightness toward the target instead of snapping, so dim/off/wake fade.
+// Brightening (wake) is snappier than darkening; both are full-scale durations.
+constexpr uint32_t FADE_IN_MS  = 180;
+constexpr uint32_t FADE_OUT_MS = 400;
+// On USB power the screen dims after DIM_MS but never turns off / sleeps --
+// suits a desk monitor that stays plugged in, while still saving the panel a
+// little. Set true to honor the full idle-off timeout on USB too.
+constexpr bool     SLEEP_WHEN_CHARGING = false;
+bool     gOnUsb = false;      // cached USB-power state (refreshed ~1/s in applyBacklight)
 
 void noteInput() { gLastInput = millis(); }
 
 bool screenAsleep() {
-    return gManualOff || (millis() - gLastInput > OFF_MS);
+    if (gManualOff) return true;
+    // On USB we only dim, never sleep, so input keeps acting normally.
+    if (gOnUsb && !SLEEP_WHEN_CHARGING) return false;
+    return millis() - gLastInput > OFF_MS;
 }
 
-// Drive the backlight from manual-off / inactivity. Called at the top of loop.
+// Drive the backlight from manual-off / inactivity, easing toward the target so
+// dim/off/wake transitions fade. Called at the top of loop.
 void applyBacklight() {
-    int t;
+    // Refresh the cached USB-power state. charging() hits the PMU over I2C, so
+    // sample it ~1/s rather than every loop.
+    {
+        static uint32_t usbCheck = 0;
+        uint32_t now = millis();
+        if (gCurBright < 0 || now - usbCheck > 1000) {
+            usbCheck = now;
+            gOnUsb   = power::charging();
+        }
+    }
+    bool noSleep = gOnUsb && !SLEEP_WHEN_CHARGING;   // USB: dim but never off
+
+    int target;
     if (gManualOff) {
-        t = 0;
+        target = 0;
     } else if (gState == State::Setup) {
-        t = gActiveBright;                 // keep the setup screen readable
+        target = gActiveBright;            // keep the setup screen readable
     } else {
         uint32_t idle = millis() - gLastInput;
-        t = (idle > OFF_MS) ? 0 : (idle > DIM_MS) ? DIM_LEVEL : gActiveBright;
+        if      (idle > OFF_MS && !noSleep) target = 0;          // sleep (battery)
+        else if (idle > DIM_MS)             target = DIM_LEVEL;  // dim (both)
+        else                                target = gActiveBright;
     }
-    if (t != gCurBright) { gCurBright = t; display::setBrightness(t); }
+
+    uint32_t now = millis();
+    if (gCurBright < 0) {                  // first call: snap, no fade
+        gCurBright = target;
+        gFadeLast  = now;
+        display::setBrightness(target);
+        return;
+    }
+    if (gCurBright == target) { gFadeLast = now; return; }
+
+    // Step toward target at a fixed full-scale rate (255 over FADE_*_MS) so the
+    // fade speed is steady regardless of loop cadence or travel distance.
+    uint32_t dt  = now - gFadeLast;
+    gFadeLast    = now;
+    uint32_t dur = (target > gCurBright) ? FADE_IN_MS : FADE_OUT_MS;
+    int step = (int)((long)255 * (long)dt / (long)dur);
+    if (step < 1) step = 1;
+    int span = target - gCurBright;
+    if (span > 0) gCurBright = (step >= span)  ? target : gCurBright + step;
+    else          gCurBright = (step >= -span) ? target : gCurBright - step;
+    display::setBrightness((uint8_t)gCurBright);
 }
 
 void enterRunning();     // forward decl (tryPin -> enterRunning)
@@ -321,9 +369,12 @@ void drawDashFrame(float curPop, float wkPop,
     // playful line. Otherwise the playful status stays.
     {
         Burn b = computeBurn();
-        if      (gLastUsage.util5h >= 100.0f) d.status = "5h limit reached";
+        // The server's 5h status header is the authoritative throttle signal --
+        // trust it over the utilization % (which can read <100 while limited).
+        if      (gLastUsage.limited)           d.status = "5h limit reached";
+        else if (gLastUsage.util5h >= 100.0f)  d.status = "5h limit reached";
         else if (b.eta5 >= 0 && b.eta5 <= 120) d.status = "~" + fmtEta(b.eta5) + " to 5h limit";
-        else if (gLastUsage.util7d >= 100.0f) d.status = "7d limit reached";
+        else if (gLastUsage.util7d >= 100.0f)  d.status = "7d limit reached";
         else if (b.eta7 >= 0 && b.eta7 <= 180) d.status = "~" + fmtEta(b.eta7) + " to 7d limit";
     }
     d.clock        = fmtClock(now);

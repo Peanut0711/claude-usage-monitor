@@ -15,6 +15,7 @@ const char* kHeaderKeys[] = {
     "anthropic-ratelimit-unified-5h-reset",
     "anthropic-ratelimit-unified-7d-utilization",
     "anthropic-ratelimit-unified-7d-reset",
+    "anthropic-ratelimit-unified-5h-status",       // "allowed" | "limited"
 };
 
 static const char* kBody =
@@ -54,7 +55,9 @@ api::Usage attempt(const String& token) {
         String r5 = http.header(kHeaderKeys[1]);
         String u7 = http.header(kHeaderKeys[2]);
         String r7 = http.header(kHeaderKeys[3]);
-        Serial.printf("[api] 5h util='%s' reset='%s'\n", u5.c_str(), r5.c_str());
+        String s5 = http.header(kHeaderKeys[4]);
+        Serial.printf("[api] 5h util='%s' reset='%s' status='%s'\n",
+                      u5.c_str(), r5.c_str(), s5.c_str());
         Serial.printf("[api] 7d util='%s' reset='%s'\n", u7.c_str(), r7.c_str());
 
         // utilization headers are a 0..1 fraction -> percent for the bars.
@@ -62,6 +65,7 @@ api::Usage attempt(const String& token) {
         if (u7.length()) u.util7d  = u7.toFloat() * 100.0f;
         if (r5.length()) u.reset5h = r5.toInt();   // unix epoch seconds
         if (r7.length()) u.reset7d = r7.toInt();
+        u.limited = s5.equalsIgnoreCase("limited");
         u.ok = (u.util5h >= 0.0f && u.util7d >= 0.0f);
     }
 

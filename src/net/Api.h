@@ -19,6 +19,9 @@ struct Usage {
     float util7d    = -1.0f;
     long  reset5h   = 0;       // unix epoch seconds, 0 if header missing
     long  reset7d   = 0;
+    bool  limited   = false;   // 5h unified status == "limited": the server's
+                               // authoritative "you're throttled now" signal,
+                               // independent of the utilization percentage.
 };
 
 // Perform one probe. Blocks for the duration of the TLS request.
