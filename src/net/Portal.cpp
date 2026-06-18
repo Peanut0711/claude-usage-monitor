@@ -238,6 +238,12 @@ void handleSave() {
     }
 
     if (hasToken) {
+        // api::poll pins the CA, so cert validation needs a real clock. Sync NTP
+        // now that STA is up (setup runs before the normal boot-time configTime).
+        configTime(0, 0, CUM_NTP_SERVER);
+        uint32_t t0 = millis();
+        while (time(nullptr) < 1000000000L && millis() - t0 < 6000) delay(50);
+
         api::Usage u = api::poll(token);
         // The probe authenticates as long as the server responds with the
         // rate-limit headers; 200 (or even a 400 bad-request) means the token

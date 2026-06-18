@@ -642,12 +642,27 @@ void enterRunning() {
     if (!prox::available())  gProxOn  = prox::begin();   // wake-on-approach
     touch::homePressed();               // discard any press from the unlock phase
     portal::stop();
-    configTime(0, 0, CUM_NTP_SERVER);   // UTC epoch for reset countdowns
+    configTime(0, 0, CUM_NTP_SERVER);   // UTC epoch for reset countdowns + TLS cert dates
     gPage = PAGE_DASH;
     gManualOff = false;
     noteInput();
     pinMode(TDS3_PIN_BTN_IO12, INPUT_PULLUP);
     pinMode(TDS3_PIN_BTN_IO16, INPUT_PULLUP);
+
+    // TLS cert validation (api::poll pins the CA) needs a real clock, so wait
+    // briefly for the first NTP sync before polling -- otherwise the first
+    // handshake fails "cert not yet valid" until the clock catches up. Keep the
+    // boot spinner moving meanwhile; if NTP is slow/blocked, poll anyway and let
+    // the backoff retry once time is set.
+    {
+        uint32_t t0 = millis();
+        while (time(nullptr) < 1000000000L && millis() - t0 < 6000) {
+            display::drawBootBusy(gBootFrame++);
+            delay(40);
+        }
+        if (time(nullptr) >= 1000000000L) gClockValid = true;
+    }
+
     Serial.println("[run] unlocked; polling Anthropic API");
     display::drawBootBusy(gBootFrame++);  // keep the boot spinner; loop continues it
     requestPoll(true);                    // first poll, animated

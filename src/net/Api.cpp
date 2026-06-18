@@ -7,6 +7,7 @@
 #include <WiFiClientSecure.h>
 
 #include "../config.h"
+#include "anthropic_ca.h"
 
 namespace {
 
@@ -33,10 +34,10 @@ bool             gInit = false;
 
 void apiInit() {
     if (gInit) return;
-    // TODO(hardening): pin the api.anthropic.com CA instead of skipping
-    // validation. setInsecure() still encrypts but does not authenticate the
-    // server, so an active MITM with a forged cert could read the token.
-    gClient.setInsecure();
+    // Authenticate the server against the pinned Google Trust Services roots
+    // (api.anthropic.com's CA) so an active MITM with a forged cert can't read
+    // the OAuth token. See anthropic_ca.h for the bundle / update procedure.
+    gClient.setCACert(ANTHROPIC_CA_BUNDLE);
     gHttp.setReuse(true);            // keep-alive: don't drop the connection on end()
     gHttp.setConnectTimeout(15000);  // generous: occasional slow TLS handshakes
     gHttp.setTimeout(15000);
