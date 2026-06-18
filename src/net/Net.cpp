@@ -41,6 +41,8 @@ bool connectMulti(const String ssids[], const String passwords[], int count,
                   int preferredIdx) {
     if (count <= 0) return false;
     WiFi.mode(WIFI_STA);
+    WiFi.setSleep(true);   // modem sleep: radio naps between beacons (saves power,
+                           // ~DTIM latency only; the default is unreliable per-core)
 
     // Fast path: connect straight to the last-good network. WiFi.begin() does a
     // targeted probe (connects as soon as that SSID is found) instead of

@@ -778,6 +778,16 @@ void loop() {
 #endif
     applyBacklight();         // inactivity dim/off + manual off
     power::update();          // slow battery sampling (self-throttled)
+
+    // Power: run the CPU at 80 MHz while the screen is off, 240 MHz when awake.
+    // screenAsleep() is only true on battery (USB dims but never sleeps), so this
+    // saves power during long idle stretches without touching the awake-time
+    // animation smoothness. 80 MHz is the floor that still runs WiFi.
+    {
+        static bool pmAsleep = false;
+        bool a = screenAsleep();
+        if (a != pmAsleep) { pmAsleep = a; setCpuFrequencyMhz(a ? 80 : 240); }
+    }
     switch (gState) {
         case State::Setup:
             if (portal::handle() == portal::Event::Provisioned) {
