@@ -311,6 +311,11 @@ uint32_t      gPollBackoffMs = 0;
 constexpr uint32_t POLL_RETRY_MIN_MS = 5000;
 constexpr uint32_t POLL_RETRY_MAX_MS = CUM_POLL_INTERVAL_MS;
 
+// Set by wakeShow() after a non-blocking radioWake(): poll the instant the link
+// comes up instead of waiting out the backoff floor. The backoff still bounds the
+// worst case (link never associates -> poll fails -> roam escalation kicks in).
+bool          gWakePollPending = false;
+
 // --- Count-up animation (dashboard) -----------------------------------------
 // On a fresh poll the bars/% ease from the previously shown values up to the
 // new ones (RPG "EXP gain" feel), overshoot slightly, then a small spark pops
@@ -732,8 +737,9 @@ void wakeShow() {
     // poll-fail rescan-roam, not here, so wake never stalls on a 2-4 s scan.
     if (!net::isConnected()) {
         radioWake();
-        gPollBackoffMs = 2000;            // first poll ~2 s out, giving the link time
-        gLastPoll = millis();
+        gWakePollPending = true;          // poll the instant the link settles...
+        gPollBackoffMs = 2000;            // ...but no later than ~2 s, which also drives
+        gLastPoll = millis();             // the roam escalation if it never associates
     } else if (millis() - gLastPoll >= CUM_POLL_INTERVAL_MS) {
         requestPoll(true);
         gLastPoll = millis();
@@ -1372,6 +1378,18 @@ void loop() {
                 lastColon = millis();
                 colonOn = !colonOn;
                 display::drawClockColon(fmtClock(time(nullptr)), colonOn);
+            }
+
+            // Wake refresh: wakeShow() kicked a non-blocking reconnect and armed
+            // this flag. Poll the moment the link is up rather than waiting out the
+            // 2 s backoff floor, so the numbers/Wi-Fi bars fill in as soon as they
+            // can. The backoff still fires the fallback poll (-> roam) if the link
+            // never associates here.
+            if (gWakePollPending && net::isConnected() && !gPollRunning) {
+                gWakePollPending = false;
+                gPollBackoffMs = 0;
+                requestPoll(false);
+                gLastPoll = millis();
             }
 
             // Periodic poll only. (Manual refresh is the menu's "Refresh" item now;

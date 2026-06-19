@@ -172,3 +172,26 @@ WiFi
 - 신호 갱신: **진입 1회 + Rescan**(추천) vs 주기 자동.
 - 항목 이름: **`WiFi`** vs `Connect` (추천 `WiFi`).
 - dBm 숫자 vs 바만 표시.
+
+## 12. WiFi wake 반응속도 ↔ 배터리 트레이드오프
+> 배경: 배터리 구동 시 화면 off(타이머/수동) 전환에서 `net::radioOff()`로 **라디오를
+> 완전히 끔**(`WiFi.mode(WIFI_OFF)`). 깰 때는 `radioWake()`가 마지막 AP만 무스캔
+> 재연결하지만, association부터 다시 하는 **cold reconnect**라 링크 올라오는 데 시간이
+> 걸림. (USB일 때는 `if (!gOnUsb)`로 애초에 radioOff 안 함.)
+
+### ⓑ 첫 poll 고정 대기 제거 — ✅ 완료 (이 커밋)
+- 기존: `wakeShow()`가 깰 때 `gPollBackoffMs=2000`으로 **첫 poll을 2초 고정 지연**.
+- 변경: `gWakePollPending` 플래그 추가 → 메인 루프에서 `net::isConnected()` 되는
+  **즉시 poll**. 2초 backoff는 "링크가 끝내 안 붙는 경우(자리 이동)"의 fallback 상한
+  겸 roam escalation 트리거로만 잔류. **배터리 손해 없이** 체감 지연만 단축.
+
+### ⓐ cold reconnect 자체 제거 — 미구현 (트레이드오프, 결정 필요)
+- 방법: 화면 off 시 `radioOff()` 대신 **모뎀슬립 유지**(`WiFi.setSleep(true)`) →
+  깰 때 association이 살아 있어 거의 즉시 연결.
+- 대가: 자는 내내 DTIM 주기(~100~300ms)마다 라디오가 비콘 수신 → **상시 소량 소모**.
+- 유불리는 사용 패턴에 따라 갈림:
+  - **오래 자고 가끔 깨움** → 현행(radioOff)이 유리 (reconnect 피크가 드묾).
+  - **자주 들여다봄(짧은 off/on 반복)** → 모뎀슬립 유지가 빠르고 총소모도 적을 수 있음
+    (reconnect 피크 누적 > baseline).
+- 검증 난점: 전류계 없이 실측이 어려움(POWER.md 라이트슬립 단락과 동일 이슈).
+- 결정 필요: 실사용 패턴 확인 후 진행. 옵션화(설정에서 "빠른 깨우기/절전" 토글)도 가능.
