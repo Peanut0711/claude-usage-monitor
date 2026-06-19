@@ -907,6 +907,20 @@ void drawSettingsNow() {
 void menuActivate(int cursor) {
     switch (display::menuRowItem(cursor)) {
         case display::MENU_REFRESH:  gMenuOpen = false; requestPoll(true); gLastPoll = millis(); break;
+        // Force a full WiFi rescan + roam onto the strongest saved network right
+        // now (e.g. just arrived at the other location and don't want to wait for
+        // the auto-roam). roamReconnect() no-ops if already connected, so this
+        // never drops a working link.
+        case display::MENU_RECONNECT: {
+            gMenuOpen = false;
+            // roamReconnect() resets the STA -> wait out any in-flight poll first
+            // so we don't yank the socket from under it (bounded, never hangs).
+            uint32_t t0 = millis();
+            while (gPollRunning && millis() - t0 < 3000) delay(20);
+            roamReconnect();
+            gWakePollPending = true;   // poll fresh data the instant the link is up
+            break;
+        }
         case display::MENU_DETAIL:   gPage = PAGE_DETAIL;  gMenuOpen = false; break;
         case display::MENU_BATTERY:  gPage = PAGE_BATTERY; gMenuOpen = false; break;
         case display::MENU_HISTORY:  gPage = PAGE_HISTORY; gMenuOpen = false; break;

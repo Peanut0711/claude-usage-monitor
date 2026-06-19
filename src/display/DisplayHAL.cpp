@@ -1029,8 +1029,8 @@ void drawApiError(int httpCode, const String& note) {
 
 // --- Navigation menu + settings (Home button selects, right scrollbar moves) -
 // Shared list layout so drawn rows and the scroll touch-band can't drift apart.
-constexpr int M_HDR_H     = 28;    // title band
-constexpr int M_ROW_H     = 32;    // each list row
+constexpr int M_HDR_H     = 24;    // title band (trimmed so 7 menu rows fit 222px)
+constexpr int M_ROW_H     = 28;    // each list row (24 + 7*28 = 220 <= 222)
 constexpr int M_PAD_X     = 18;    // left text padding (labels are left-aligned)
 constexpr int M_VAL_X     = 306;   // settings value right-align x
 // Right scrollbar. The thin bar at the far edge is VIEW ONLY (shows the cursor).
@@ -1044,12 +1044,13 @@ constexpr int M_CTRL_X1   = 448;   // drag band right (stops short of the Home s
 
 struct MenuRow { const char* label; MenuItem item; };
 const MenuRow kMenuRows[] = {
-    {"Refresh",  MENU_REFRESH},
-    {"Detail",   MENU_DETAIL},
-    {"Battery",  MENU_BATTERY},
-    {"History",  MENU_HISTORY},
-    {"Settings", MENU_SETTINGS},
-    {"Exit",     MENU_EXIT},
+    {"Refresh",   MENU_REFRESH},
+    {"Reconnect", MENU_RECONNECT},   // force a full WiFi rescan + roam on demand
+    {"Detail",    MENU_DETAIL},
+    {"Battery",   MENU_BATTERY},
+    {"History",   MENU_HISTORY},
+    {"Settings",  MENU_SETTINGS},
+    {"Exit",      MENU_EXIT},
 };
 constexpr int M_ROWS = sizeof(kMenuRows) / sizeof(kMenuRows[0]);
 

@@ -42,9 +42,12 @@
 // Runtime roaming: consecutive failed polls (each nudging a cheap same-AP
 // reconnect, for a brief blip) before assuming we've physically moved
 // (home<->office) and doing a full rescan to roam onto the strongest saved
-// network. Kept small so a real location change recovers within ~1 min while
-// the cheap reconnect still absorbs short blips without scanning.
-#define CUM_REROAM_AFTER             3
+// network. 1 = roam on the very first failure, so arriving at the other
+// location recovers in ~5 s instead of ~30 s. The trade-off is that a brief
+// blip (router reboot) also triggers a 2-4 s scan rather than a cheap retry;
+// acceptable here since the unit is usually on USB. The menu "Reconnect" item
+// forces the same rescan on demand for the impatient case.
+#define CUM_REROAM_AFTER             1
 // Pre-commit verify (setup portal): how long to wait for the STA link to come
 // up while validating the entered WiFi + token. Kept well under the browser's
 // POST timeout so the result page still reaches the phone.

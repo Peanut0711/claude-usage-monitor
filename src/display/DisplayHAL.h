@@ -92,7 +92,7 @@ void drawBatteryPage(const BatteryPage& b);
 // brightness / refresh) instead of cycling with IO12.
 enum MenuItem {
     MENU_NONE = 0, MENU_DASH, MENU_DETAIL, MENU_HISTORY, MENU_BATTERY,
-    MENU_BRIGHTNESS, MENU_REFRESH, MENU_CLOSE, MENU_EXIT, MENU_SETTINGS
+    MENU_BRIGHTNESS, MENU_REFRESH, MENU_RECONNECT, MENU_CLOSE, MENU_EXIT, MENU_SETTINGS
 };
 // Nav menu: a "Menu" title + a row list, navigated by the right drag scrollbar
 // (moves the cursor) and the Home button (selects). `cursor` highlights the row.
